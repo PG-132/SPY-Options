@@ -1,0 +1,27 @@
+# Raw and derived data: large, regenerable, and not the repo's job.
+# Chain snapshots run ~650 KB each; prices and index history come from the API.
+data/*
+!data/README.md
+
+# Generated pages and any other build output
+out/
+
+# Credentials. Webull keys live in the environment; its 2FA token in ~/.webull.
+# Never commit either. conf/ is where the SDK would write a token by default.
+conf/
+token.txt
+.env
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
