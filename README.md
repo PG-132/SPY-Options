@@ -1,20 +1,21 @@
 # spy-screener
 
-A SPY options screener that 
-    -Measures
-        Captures options chain, solves its own IVs from the quotes, reduces them to numbers that can be
-        compared such as at the money level for each expiry, skew by delta, and term structure per trading
-        session. Distance out of the money is counted in expected moves and delta rather than %'s and time 
-        is counted in sessions rather than calendar days. Long run context comes from published CBOE series
-        while personal data is recorded and logged from present onwards. 
+A SPY options screener that:
 
-    -Choosing
-        Given a view and risk limits, finds the structure that fits best given risk parameters.
+**Measures.** Captures options chain, solves its own IVs from the quotes, reduces
+them to numbers that can be compared such as at the money level for each expiry,
+skew by delta, and term structure per trading session. Distance out of the money
+is counted in expected moves and delta rather than %'s and time is counted in
+sessions rather than calendar days. Long run context comes from published CBOE
+series while personal data is recorded and logged from present onwards.
 
-    This is not a forecaster. Priced at their own IVs, every structure is a fair bet and only differ in shape 
-    of risk and not in edge. Nothing here ranks candidates by expected profit, they rank by fit. 
-    rich or cheap always means against the rest of today's surface rather than against a prediction. 
+**Choosing.** Given a view and risk limits, finds the structure that fits best
+given risk parameters.
 
+This is not a forecaster. Priced at their own IVs, every structure is a fair bet
+and only differ in shape of risk and not in edge. Nothing here ranks candidates
+by expected profit, they rank by fit. Rich or cheap always means against the rest
+of today's surface rather than against a prediction.
 
 ## Running it
 
@@ -36,5 +37,6 @@ bid/ask go stale, and `snap` warns you.
                           (market data only, so it can't place orders)
     tests/                offline tests with a fake Webull:
                           python -m unittest discover tests
+    docs/measurements.md  what produced every constant in the code
     data/chains/          one folder per snapshot, created on the first `snap`
 
