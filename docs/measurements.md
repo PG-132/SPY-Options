@@ -13,6 +13,9 @@ what produced it, so it can be re-checked rather than trusted.
   batch. Only `def_type == STANDARD` survives.
 - Webull's theta omits the interest-on-strike term, so their single-leg theta
   disagrees with ours by 15-30%. Their IV runs 0.2-0.35 vol points below ours.
+  (That IV gap was measured against the old spot-and-whole-days method. Pricing
+  from the parity forward with actual time to expiry closes it to 0.11 points
+  or less on every expiry; see below.)
   Hence every vendor number is stored under a `vendor_` prefix, never as truth.
 - After 16:00 ET bid/ask go stale while `close` stays the official print.
 
@@ -107,3 +110,24 @@ and the forward returned an implied rate of **-25%** on the 29-day chain. The
 forward was fine (766.24 against 766.18 from theory), but American puts carry
 an early-exercise premium that bends the line on the in-the-money side. Fix the
 rate from a T-bill and back the forward out of the at-the-money pair instead.
+
+## Whole days lie about short-dated options (2026-09-24)
+
+Time to expiry counted in whole days, against actual hours to the 16:00 close,
+on the snapshot taken at 11:42 ET. At-the-money IV each way, with Webull's for
+comparison:
+
+| Expiry | Whole days | Actual | ATM whole | ATM actual | Webull |
+| --- | --- | --- | --- | --- | --- |
+| Sep 25 | 1 | 1.18 | 15.17% | 13.97% | 13.86% |
+| Oct 2 | 8 | 8.18 | 12.82% | 12.68% | 12.70% |
+| Oct 23 | 29 | 29.18 | 13.13% | 13.09% | 13.15% |
+
+Rounding a day away costs 1.3 vol points at one day to expiry and 0.04 at
+twenty-nine, because IV scales with the inverse root of time. `vol.py` counts
+actual time; `dte` survives only as a label.
+
+With that fixed, and the forward taken from parity, our IVs land within 0.11
+points of Webull's on every expiry, and within 0.05 on nine of thirteen. Two
+independent implementations agreeing that closely is the strongest check we
+have that neither is quietly wrong.
