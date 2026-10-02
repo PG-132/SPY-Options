@@ -88,9 +88,10 @@ HOLIDAYS = [dt.date(*d) for d in (
 )]
 
 CONTRACT_COLS = ["symbol", "expiry", "dte", "sessions", "strike", "right", "bid", "ask",
-                 "mid", "iv", "iv_bid", "iv_ask", "iv_band", "delta", "gamma", "theta",
-                 "vega", "vendor_iv", "iv_vs_vendor", "moves_from_forward", "forward",
-                 "spot_used", "quote_time_et"]
+                 "mid", "spread", "spread_pct", "open_interest", "volume",
+                 "quote_age_min", "iv", "iv_bid", "iv_ask", "iv_band", "delta", "gamma",
+                 "theta", "vega", "vendor_iv", "iv_vs_vendor", "moves_from_forward",
+                 "forward", "spot_used", "quote_time_et"]
 EXPIRY_COLS = ["expiry", "dte", "days_to_expiry", "sessions", "forward", "forward_from_spot", "forward_gap",
                "atm_strike", "atm_iv", "atm_iv_per_session", "iv_25d_put", "iv_10d_put",
                "iv_25d_call", "iv_10d_call", "put_skew_25d", "call_skew_25d",
@@ -185,10 +186,24 @@ def forward(by_strike, disc):
     return pricing.forward_from_parity(mid(pairs[k]["C"]), mid(pairs[k]["P"]), k, disc), k
 
 
+def quote_age(row):
+    """Minutes between the quote's own timestamp and when we fetched it. A
+    quote that has not moved while the market has is a ghost, whatever IV it
+    implies."""
+
+    then, now = _time(row.get("quote_time_et")), _time(row.get("fetched_at"))
+    return round((now - then).total_seconds() / 60, 2) if then and now else None
+
+
 def read_strike(row, right, strike, F, T, disc, spot):
     """One strike, translated: IV from the mid, the band from bid and ask, and
     our own Greeks at our own IV. Returns None when no IV exists, which is
-    honest rather than a gap-filled guess."""
+    honest rather than a gap-filled guess.
+
+    Liquidity comes along as plain facts: open interest, volume, the spread
+    and its share of premium, and the quote's age. Nothing is judged here. The
+    thresholds that decide what is worth trading belong to whatever reads this
+    file, so changing one costs a re-read instead of a re-solve."""
 
     try:
         iv = pricing.implied_vol(right, mid(row), F, strike, T, disc)
@@ -198,9 +213,13 @@ def read_strike(row, right, strike, F, T, disc, spot):
     g = pricing.bs(right, F, strike, T, iv, disc)
 
     vendor = _f(row.get("vendor_iv"))
+    spread = _f(row["ask"]) - _f(row["bid"])
     return {
         "symbol": row["symbol"], "expiry": row["expiry"], "strike": strike, "right": right,
         "bid": _f(row["bid"]), "ask": _f(row["ask"]), "mid": round(mid(row), 4),
+        "spread": round(spread, 4), "spread_pct": round(spread / mid(row), 4),
+        "open_interest": _f(row.get("open_interest")), "volume": _f(row.get("volume")),
+        "quote_age_min": quote_age(row),
         "iv": round(iv, 6), "iv_bid": round(lo, 6), "iv_ask": round(hi, 6),
         "iv_band": round(hi - lo, 6),
         "delta": round(g["delta"], 6), "gamma": round(g["gamma"], 6),
