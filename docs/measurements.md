@@ -131,3 +131,47 @@ With that fixed, and the forward taken from parity, our IVs land within 0.11
 points of Webull's on every expiry, and within 0.05 on nine of thirteen. Two
 independent implementations agreeing that closely is the strongest check we
 have that neither is quietly wrong.
+
+## Two smile shapes that failed, and the test that caught them (2026-09-24)
+
+Residuals from a good fit scatter, so their signs flip about half the time
+along the smile. Long same-sign runs mean the shape is wrong. On the 29-day
+expiry, 133 points:
+
+| Shape | RMS, vol points | Worst residual | Sign flips |
+| --- | --- | --- | --- |
+| cubic in ln(K/F) | 0.407 | 2.04 | 5 |
+| SVI | 0.081 | 0.28 | 7 |
+| hyperbola + quadratic + cubic, in IV | 0.023 | 0.10 | 26 |
+
+**The cubic** cannot be a smile. A real one has straight wings and a rounded
+belly; a polynomial that matches the belly undershoots both wings, which is
+exactly what the residuals showed: +2.04 at the 595 put, -0.30 through the
+shoulders, +1.21 at the 835 call. It reported 460 of 978 tradeable points as
+sellable above the curve, all of it artifact.
+
+**SVI** fails for a subtler reason, and it is our window's fault rather than
+the model's. SVI requires both wings to rise in total variance. Read straight
+off this chain, the left wing slopes -0.0429 per unit k and the right slopes
+-0.0007, still falling, which implies rho = -1.035, outside SVI's legal range
+of +/-1. The fit pinned rho at the boundary and threw b to 98. The call side
+turns up further out than 3 expected moves, where our band stops.
+
+**What works** is SVI's idea applied to IV instead of total variance, with
+quadratic and cubic terms for the belly: iv = c0 + c1*d + c2*sqrt(d^2+s^2) +
+c3*d^2 + c4*d^3 around d = k - m. Only m and s are searched; the five
+coefficients are exact least squares, weighted 1/band^2.
+
+The stopping rule is the measurement floor, not the RMS alone: median IV bands
+on these expiries run 0.048-0.097 vol points, and the fit's RMS is 0.013-0.034,
+so it already sits inside the noise of the quotes it is fitting. More
+flexibility past that is fitting the spread.
+
+Sign flips land at 12-40 of about 130 rather than the ~65 pure scatter would
+give. That residue looks inherent: market makers quote from their own smooth
+model, so neighbouring quotes are correlated by construction.
+
+**What the working fit finds:** 40 of 978 tradeable points clear their own
+spread to sell and 52 to buy, the largest edge being 0.08 vol points on a
+contract whose own band is 0.20. In SPY, nothing is loose. The surface earns
+its keep as a reference and a data check, not as a source of free money.
