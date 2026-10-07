@@ -63,8 +63,7 @@ CONFIG = {
     "min_volume": 1,            # it traded at least once today
     "max_quote_age_min": 5,
     # The fit
-    "degree": 3,                # cubic in ln(K/F): enough for a skewed smile
-    "min_points": 8,            # fewer than this and a cubic is just noise
+    "min_points": 8,            # fewer than this and five terms is just noise
     "band_floor": 0.0005,       # no quote counts as better than 0.05 vol points
 }
 
@@ -133,11 +132,12 @@ def smile_basis(k, m, s):
     cubic bend the belly, which a bare hyperbola cannot do well enough.
 
     This is SVI's idea applied to IV rather than total variance. Real SVI was
-    tried first and cannot represent these chains: it requires both wings to
-    rise in total variance, and ours stops 3 expected moves up, before the call
-    side turns. Read off the 29-day data the implied rho is -1.035, outside
-    SVI's legal range, so the fit pinned rho at the boundary and threw b to 98.
-    A constraint built for the whole chain does not survive a 3-move window.
+    tried first and pinned rho at +1.00 with b = 98, which was blamed on our
+    strike window. Wrongly: the call wing turns up in total variance at 1.24
+    expected moves and our band reaches 2.67, and fitting past the turn gives
+    rho = -0.67, legal. The five-way search failed, not the data. Here only m
+    and s are searched and the coefficients fall out of weighted least squares,
+    which is why this one fits. See docs/measurements.md.
 
     Nothing here is arbitrage-aware, so the curve is only ever evaluated
     between the strikes it was fitted on. It is a reference shape, not a model

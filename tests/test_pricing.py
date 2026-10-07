@@ -7,7 +7,6 @@ against Hull and finite differences. Its outputs are frozen in
 straddle_tool_reference.json so this repo does not depend on that folder.
 
   python -m unittest discover tests        (from the project folder)
-  or press Run on this file in VS Code
 """
 
 import json
@@ -40,7 +39,10 @@ class TestAgainstTheOldPricer(unittest.TestCase):
 
 class TestTextbook(unittest.TestCase):
     """Hull's worked example: S=42, K=40, r=10%, sigma=20%, six months.
-    Call 4.76, put 0.81."""
+    Call 4.76, put 0.81.
+    
+    computes properly.
+    """
 
     def setUp(self):
         self.F, self.disc = pricing.from_spot(42.0, 0.5, 0.10)

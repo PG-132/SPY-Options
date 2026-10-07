@@ -85,7 +85,7 @@ def floor_price(right, F, K, T, disc):
 def bs(right, F, K, T, sigma, disc):
     """European price and Greeks from the forward. At or past expiry the price
     is intrinsic and the Greeks are degenerate, which is honest: there is no
-    curvature left to measure."""
+    curvature left to measure. Corrected feature from previous straddle experiment."""
     right = right.upper()[0]
     if T <= 0:
         intrinsic = max(0.0, F - K) if right == "C" else max(0.0, K - F)
@@ -127,6 +127,7 @@ def implied_vol(right, price, F, K, T, disc):
     matches. A price tolerance alone lets a tiny-vega option, far out of the
     money or nearly expired, return a sigma that is wrong by whole vol points
     while its price still agrees to a penny."""
+    
     right = right.upper()[0]
     floor = floor_price(right, F, K, T, disc)
     if T <= 0 or price <= floor + 1e-8:
@@ -165,5 +166,6 @@ def iv_band(right, bid, ask, F, K, T, disc):
     bar on that strike's IV: it says how much of what we read is the market
     and how much is the spread. In the wings, where vega collapses, a penny
     of spread can be most of a vol point."""
+
     return (implied_vol(right, bid, F, K, T, disc),
             implied_vol(right, ask, F, K, T, disc))

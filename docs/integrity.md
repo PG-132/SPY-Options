@@ -1,9 +1,11 @@
 # Data integrity: what could be wrong, and how we would know
 
 Nothing here forecasts, but almost everything is derived, and a derivation can
-be wrong in ways that look like data. Two have already been caught this way:
-whole-day time counting put the 1-DTE expiry 1.3 vol points off, and a cubic
-smile fit reported 460 tradeable edges that did not exist.
+be wrong in ways that look like data. Three have been caught this way so far:
+whole-day time counting put the 1-DTE expiry 1.3 vol points off, a cubic smile
+fit reported 460 tradeable edges that did not exist, and a wing slope measured
+across the belly blamed SVI's failure on our strike window when the window was
+fine.
 
 This is the running list. Add to it when a new assumption gets built on, and
 strike items off when they are checked rather than when they feel fine.
@@ -86,5 +88,8 @@ against the measured bands.
   on. It is a reference shape, not a model for pricing what we did not see.
 - Raw snapshots are never modified. Every derived number must be reproducible
   from them, so a fixed assumption re-derives the whole history.
+- A wing slope is measured past the turn in total variance, never across a
+  whole side. Averaging the falling belly with the rising wing gives the wrong
+  sign.
 - A number without an error bar is not a result. Points carry their IV band;
   anything built on top of them needs the equivalent.

@@ -150,17 +150,27 @@ exactly what the residuals showed: +2.04 at the 595 put, -0.30 through the
 shoulders, +1.21 at the 835 call. It reported 460 of 978 tradeable points as
 sellable above the curve, all of it artifact.
 
-**SVI** fails for a subtler reason, and it is our window's fault rather than
-the model's. SVI requires both wings to rise in total variance. Read straight
-off this chain, the left wing slopes -0.0429 per unit k and the right slopes
--0.0007, still falling, which implies rho = -1.035, outside SVI's legal range
-of +/-1. The fit pinned rho at the boundary and threw b to 98. The call side
-turns up further out than 3 expected moves, where our band stops.
+**SVI** fails, though not for the reason first recorded here. That note said
+the right wing never turns up in total variance, implying rho = -1.035 and
+forcing the fit to the boundary. It came from regressing the whole call side at
+once, which averages the falling belly with the rising wing: 63 points from
+k = 0 out slope -0.0036, and a negative right slope is illegal.
+
+Re-measured 2026-10-07, the wing does turn, at k = 0.0455, or 1.24 expected
+moves, inside a band that reaches 2.67. Past the turn the right wing slopes
++0.0087 against the left wing's -0.0437, giving rho = -0.67 and b = 0.026,
+comfortably legal. The chain admits an SVI fit; rho = +1.00 with b = 98 was a
+fitting failure, most likely Nelder-Mead on all five parameters from one start.
+That code is gone, so the cause is not settled - only that the window was never
+the problem.
 
 **What works** is SVI's idea applied to IV instead of total variance, with
 quadratic and cubic terms for the belly: iv = c0 + c1*d + c2*sqrt(d^2+s^2) +
 c3*d^2 + c4*d^3 around d = k - m. Only m and s are searched; the five
 coefficients are exact least squares, weighted 1/band^2.
+
+That linearity is also why it fits where SVI did not: no five-way search to
+get lost in.
 
 The stopping rule is the measurement floor, not the RMS alone: median IV bands
 on these expiries run 0.048-0.097 vol points, and the fit's RMS is 0.013-0.034,
