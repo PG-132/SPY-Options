@@ -11,14 +11,20 @@ math be tested against a frozen reference to float noise.
 
 PER EXPIRY, IN ORDER:
 
-1. The forward, from put-call parity at the strike where the call and put mids
-   are closest. That is the market quoting its own forward, so no dividend
-   needs guessing, and any mismatch between the recorded spot and the option
-   mids is absorbed there instead of tilting every strike's IV. 
-   
+1. The forward, from put-call parity at the strikes whose call and put are
+   quoted the same width. That is the market quoting its own forward, so no
+   dividend needs guessing, and any mismatch between the recorded spot and the
+   option mids is absorbed there instead of tilting every strike's IV.
+
    (In the
    ***Sep-25 straddle log that mismatch showed up as calls and puts disagreeing
    by up to 4 vol points. See docs/measurements.md.)***
+
+   Every strike quoted on both sides implies a forward and they do not agree:
+   up to 31 cents apart at 29 days, as a bias that tracks the pair's width
+   asymmetry rather than as noise. So the pairs are gated on that asymmetry,
+   the survivors averaged, and what they still disagree by is reported as
+   `forward_error`. Nothing downstream treats the forward as exact.
 
 2. One IV per strike, solved from the out-of-the-money side: puts below the
    forward, calls above. Those quotes are tighter, and it sidesteps the
@@ -69,6 +75,8 @@ CONFIG = {
     "rate": 0.04,
     "delta_points": (0.25, 0.10),   # the reference points either side
     "min_bid": 0.005,               # no bid, no market, no IV
+    "forward_pairs": 6,             # the evenest pairs the forward is read from
+    "forward_max_asymmetry": 0.05,  # call spread minus put spread, past which the mid is biased
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -92,7 +100,8 @@ CONTRACT_COLS = ["symbol", "expiry", "dte", "sessions", "strike", "right", "bid"
                  "quote_age_min", "iv", "iv_bid", "iv_ask", "iv_band", "delta", "gamma",
                  "theta", "vega", "vendor_iv", "iv_vs_vendor", "moves_from_forward",
                  "forward", "spot_used", "quote_time_et"]
-EXPIRY_COLS = ["expiry", "dte", "days_to_expiry", "sessions", "forward", "forward_from_spot", "forward_gap",
+EXPIRY_COLS = ["expiry", "dte", "days_to_expiry", "sessions", "forward", "forward_error",
+               "forward_iv_cost", "forward_pairs", "forward_from_spot", "forward_gap",
                "atm_strike", "atm_iv", "atm_iv_per_session", "iv_25d_put", "iv_10d_put",
                "iv_25d_call", "iv_10d_call", "put_skew_25d", "call_skew_25d",
                "strikes_read", "median_iv_band", "median_vs_vendor", "rate"]
@@ -174,16 +183,99 @@ def mid(row):
     return (_f(row["bid"]) + _f(row["ask"])) / 2
 
 
-def forward(by_strike, disc):
-    """The forward, from the strike where call and put are closest in value.
-    That is the strike nearest the money, where both sides are liquid and
-    neither carries much early-exercise premium."""
+def forward(by_strike, disc, want=None):
+    """The forward, read from the pairs whose two legs are quoted evenly.
 
-    pairs = {k: v for k, v in by_strike.items() if "C" in v and "P" in v}
+    Parity gives a forward at every strike quoted on both sides, and all of
+    them should agree. Measured on the 2026-09-24 chain they do not: across the
+    0.35-0.65 delta band the 29-day pairs spread 31 cents. That spread is a
+    BIAS, not noise, which is what decides how to handle it. Three things say
+    so:
+
+      - it arrives as a slope in strike, one sign flip about the mean in 21
+        steps, the same signature that failed the cubic smile
+      - it tracks the pair's width asymmetry, call spread minus put spread, at
+        +0.93 correlation, while total width predicts it at only -0.29
+      - timing is not the cause: those 22 pairs were quoted inside two seconds
+        of each other and SPY moved three cents across them
+
+    The mechanism is that the in-the-money leg is quoted wider, because the
+    market maker carries more premium and more direction on it, so its mid sits
+    predictably off fair value. How deep a leg sits runs monotonically with
+    strike, so the error tilts rather than scatters. Averaging cures noise and
+    does nothing for a bias; what cures a bias is reading it where it vanishes,
+    which is where the two legs are quoted the same width.
+
+    So pairs must first pass an asymmetry gate, and only then are the tightest
+    of them averaged, weighted 1/width^2 against the noise that is left. On a
+    $1 strike grid five to twenty-four pairs pass and the averaging is real. On
+    a coarse grid it can come down to one, which is honest rather than a
+    regression to the old single-pair rule: `pairs` says how many were used and
+    the error bar widens to that pair's own quote noise.
+
+    `error` is the forward's error bar, the wider of what the used pairs
+    disagree by and what the tightest of them can be read to. Nothing
+    downstream may treat the forward as exact.
+    """
+    pairs = []
+    for k, sides in by_strike.items():
+        if "C" not in sides or "P" not in sides:
+            continue
+        call, put = sides["C"], sides["P"]
+        cw, pw = _f(call["ask"]) - _f(call["bid"]), _f(put["ask"]) - _f(put["bid"])
+        pairs.append({
+            "strike": k,
+            "width": cw + pw,
+            "asymmetry": cw - pw,
+            "mid_gap": abs(mid(call) - mid(put)),
+            "forward": pricing.forward_from_parity(mid(call), mid(put), k, disc),
+        })
     if not pairs:
-        return None, None
-    k = min(pairs, key=lambda k: abs(mid(pairs[k]["C"]) - mid(pairs[k]["P"])))
-    return pricing.forward_from_parity(mid(pairs[k]["C"]), mid(pairs[k]["P"]), k, disc), k
+        return None
+
+    eligible = [p for p in pairs if abs(p["asymmetry"]) <= CONFIG["forward_max_asymmetry"]]
+    if not eligible:
+        # A grid too coarse to hold an even pair. Take the evenest there is and
+        # let the error bar carry the damage.
+        eligible = sorted(pairs, key=lambda p: abs(p["asymmetry"]))[:1]
+
+    # tightest first, then nearest the money: among equally tight pairs the one
+    # whose call and put agree is the one sitting closest to the forward.
+    eligible.sort(key=lambda p: (p["width"], p["mid_gap"]))
+    used = eligible[:max(1, want or CONFIG["forward_pairs"])]
+    weights = [1.0 / max(p["width"], 0.01) ** 2 for p in used]
+    F = sum(w * p["forward"] for w, p in zip(weights, used)) / sum(weights)
+
+    reads = [p["forward"] for p in used]
+    strikes = sorted(p["strike"] for p in used)
+    # half the tightest pair's combined spread, in forward terms: the floor
+    # under what any single reading can resolve.
+    noise = (min(p["width"] for p in used) / 2) / disc
+    return {
+        "forward": F,
+        "error": max(max(reads) - min(reads), noise),
+        "spread": max(reads) - min(reads),
+        "pairs": len(used),
+        "eligible": len(eligible),
+        "strikes": strikes,
+        "brackets": strikes[0] <= F <= strikes[-1],
+    }
+
+
+def forward_iv_cost(contracts, F, spread, T, disc):
+    """What the forward's error bar is worth in vol points, read at the strike
+    nearest the money. This is the floor under every IV in the expiry: no
+    strike can be known better than its forward is."""
+    if not contracts or not spread:
+        return None
+    c = min(contracts, key=lambda c: abs(c["strike"] - F))
+    if c.get("iv") is None:
+        return None
+    try:
+        shifted = pricing.implied_vol(c["right"], c["mid"], F + spread, c["strike"], T, disc)
+    except pricing.SolveError:
+        return None
+    return abs(shifted - c["iv"])
 
 
 def quote_age(row):
@@ -272,10 +364,16 @@ def one_expiry(expiry, rows, spots, started, warnings):
     T = (close - started).total_seconds() / (365 * 86400)
     disc = math.exp(-CONFIG["rate"] * T)
     by_strike = quotes_by_strike(rows)
-    F, atm_k = forward(by_strike, disc)
-    if F is None:
+    fwd = forward(by_strike, disc)
+    if fwd is None:
         warnings.append(f"{expiry}: no strike with both a call and a put; skipped")
         return None, []
+    F = fwd["forward"]
+    atm_k = min(by_strike, key=lambda k: abs(k - F))
+    if fwd["pairs"] > 1 and not fwd["brackets"]:   # one pair brackets nothing by construction
+        warnings.append(f"{expiry}: the forward's pairs sit on one side of it "
+                        f"({fwd['strikes'][0]:.0f}-{fwd['strikes'][-1]:.0f}, F {F:.2f}); "
+                        f"extrapolated, not read")
 
     contracts = []
     for k, sides in sorted(by_strike.items()):
@@ -308,6 +406,9 @@ def one_expiry(expiry, rows, spots, started, warnings):
         "expiry": expiry, "dte": dte, "days_to_expiry": round(T * 365, 3),
         "sessions": sessions,
         "forward": round(F, 4),
+        "forward_error": round(fwd["error"], 4),
+        "forward_iv_cost": _round(forward_iv_cost(contracts, F, fwd["error"], T, disc)),
+        "forward_pairs": fwd["pairs"],
         "forward_from_spot": round(contracts[len(contracts) // 2]["spot_used"] / disc, 4),
         "atm_strike": atm_k, "atm_iv": round(atm, 6) if atm else None,
         "atm_iv_per_session": (round(atm * math.sqrt(T / (sessions / 252)), 6)
@@ -322,6 +423,14 @@ def one_expiry(expiry, rows, spots, started, warnings):
         "rate": CONFIG["rate"],
     }
     row["forward_gap"] = round(F - row["forward_from_spot"], 4)
+    # The forward is meant to be the one thing we know better than the quotes.
+    # When its own error bar outgrows the median quote band it has become the
+    # dominant error in the expiry, and every IV in it inherits that.
+    cost = row["forward_iv_cost"]
+    if cost is not None and cost > row["median_iv_band"]:
+        warnings.append(f"{expiry}: the forward is worth {cost * 100:.2f} vol points of "
+                        f"uncertainty against a {row['median_iv_band'] * 100:.2f} median "
+                        f"band; it is the largest error here, not the quotes")
     return row, contracts
 
 

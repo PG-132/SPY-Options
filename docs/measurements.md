@@ -132,6 +132,95 @@ points of Webull's on every expiry, and within 0.05 on nine of thirteen. Two
 independent implementations agreeing that closely is the strongest check we
 have that neither is quietly wrong.
 
+## Where the forward comes from (2026-10-10, on the 2026-09-24 chain)
+
+Put-call parity gives a forward at every strike quoted on both sides. They
+should all agree. Across the 0.35-0.65 delta band they do not, and the
+disagreement grows with maturity:
+
+| Expiry | DTE | Pairs | Spread, all pairs | Spread, 6 tightest | Forward's error, vol pts |
+| --- | --- | --- | --- | --- | --- |
+| 2026-09-29 | 5 | 7 | 1.3c | 1.3c | 0.017 |
+| 2026-10-07 | 13 | 14 | 11.9c | 4.2c | 0.037 |
+| 2026-10-08 | 14 | 3 | 9.6c | 30.9c | 0.261 |
+| 2026-10-09 | 15 | 15 | 18.7c | 8.0c | 0.063 |
+| 2026-10-16 | 22 | 19 | 24.9c | 8.7c | 0.058 |
+| 2026-10-23 | 29 | 22 | 30.8c | 12.0c | 0.066 |
+
+That 31 cents is not quote noise. Three things identify it:
+
+- **It is a slope, not scatter.** Across the 29-day band F(K) falls
+  monotonically with strike, one sign flip about the mean in 21 steps, slope
+  -0.0147 per dollar. The same signature that failed the cubic smile.
+- **It tracks width asymmetry.** Correlation between a pair's deviation and
+  its call spread minus put spread is +0.93 on the four longest expiries, at
+  roughly 0.9 of a cent per cent of asymmetry. The mid of a wide
+  in-the-money quote is not its fair value, and how deep a leg sits runs
+  monotonically with strike, which is why the error arrives tilted.
+- **Timing is not the cause.** All 22 pairs were quoted between 11:43:43 and
+  11:43:45, and SPY moved three cents across them. Subtracting each pair's own
+  spot makes the spread slightly worse, 33.8c against 30.8c.
+
+Averaging cures noise and does nothing for a bias. What cures a bias is
+reading it where it vanishes, which is where the two legs are quoted the same
+width. So `vol.forward()` gates on asymmetry first - `|C width - P width|`
+within 0.05 - and only then averages the tightest survivors, weighted
+1/width^2 against the noise that is left. Selection handles the bias, weighting
+handles the noise.
+
+Two measurements decided that shape rather than the obvious alternatives:
+
+- **Weighting on asymmetry instead of gating on it** barely differs, because
+  once the gate is applied the survivors all sit within 0.04 of even on twelve
+  of thirteen expiries. The two weightings disagree by at most 1.5 cents.
+- **Regressing the bias out** - fit F against signed asymmetry across all
+  pairs, take the intercept at zero - was tried and rejected. The fitted slope
+  came out 0.11, 0.16, 0.17, 0.20, 0.22, 0.24, 0.32, 0.41, 0.50, 0.90, 1.45,
+  1.93 across the thirteen expiries. A 17x range in one quoting behaviour on
+  one afternoon is not a model. The short expiries are the unstable ones: their
+  quotes are all 0.01-0.03 wide, so the slope is fitted over a tiny x-range and
+  then extrapolated to zero, dragging their forwards 5-6 cents.
+
+Against the old single-pair rule the forward moves by under two cents on every
+expiry, so that rule was not wrong, just unprotected: it picked one of 22
+disagreeing readings by a criterion unrelated to reliability, and reported no
+uncertainty.
+
+`forward_error` is the wider of what the used pairs disagree by and half the
+tightest pair's combined spread, in forward terms. The second term matters
+because one pair cannot disagree with itself and that is not certainty.
+`forward_iv_cost` converts the error to vol points at the strike nearest the
+money: ten cents of forward is about 0.06 vol points at 29 days.
+
+| Expiry | DTE | Eligible pairs | Used | Forward error | Vol pts | vs median band |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-29 | 5 | 24 | 6 | 1.5c | 0.020 | 0.16x |
+| 2026-10-07 | 13 | 7 | 6 | 6.0c | 0.052 | 0.60x |
+| 2026-10-08 | 14 | 1 | 1 | 7.0c | 0.059 | 0.69x |
+| 2026-10-09 | 15 | 7 | 6 | 8.0c | 0.063 | 0.94x |
+| 2026-10-16 | 22 | 7 | 6 | 8.7c | 0.058 | 1.21x |
+| 2026-10-23 | 29 | 9 | 6 | 11.6c | 0.066 | 1.17x |
+
+**2026-10-08 is the instructive case.** Exactly one pair passes the gate,
+because the expiry is quoted on a $5 strike grid - 26 strikes, every gap
+exactly 5.00 - where 2026-10-07 has a $1 grid with 105. Checked against the
+raw chain: this is what the exchange listed, not something the collector
+dropped. $5 of strike is far enough that the next pair out is already five
+times more asymmetric, so there is nowhere near the money to read a second
+clean forward from. Ranking by width instead of gating gave that expiry a
+30.9-cent error bar and pulled its forward two cents off the clean reading;
+the gate returns the clean reading and an error bar of 7.0 cents from that
+pair's own quote noise.
+
+The prediction that follows: $1 strikes get listed as a weekly approaches, so
+this expiry's grid should densify and its forward error should fall day over
+day. Worth checking against the next snapshots, as a test of whether the
+quality number means what it claims.
+
+Note that on the two longest expiries the forward's error already exceeds the
+median quote band, at 1.21x and 1.17x. The forward is the largest error there,
+not the spreads, and `vol.py` warns when that happens.
+
 ## Two smile shapes that failed, and the test that caught them (2026-09-24)
 
 Residuals from a good fit scatter, so their signs flip about half the time

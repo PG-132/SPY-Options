@@ -12,25 +12,26 @@ strike items off when they are checked rather than when they feel fine.
 
 
 
-### 1. The forward rests on one strike pair
+### 1. The forward's error bar is not carried into each point
 
-`vol.forward()` picks the single strike where call and put mids are closest and
-takes the forward from that pair. One stale or crossed quote at that strike
-moves the forward for the whole expiry, and every IV solved against it.
+Fixed as far as the forward itself goes (see Handled), but only half the job.
+`expiries.csv` now records `forward_error` and `forward_iv_cost`, and on
+2026-10-16 and 2026-10-23 that cost is 1.2x the median quote band: the forward
+is the largest error in those expiries, not the spreads. Yet each contract's
+`iv_band` still reflects only its own bid and ask, so every point on those two
+expiries carries an error bar that is too small, and `surface.py` weights by
+1/band^2 and reads edges against it.
 
-so compare the forward implied by each near-the-money pair
-(say 0.35 to 0.65 delta). They should agree within a cent or two. A spread
-wider than that means one pair is dragging the result.
-
-*Fix when we get to it:* works for now in the building stages but take the forward 
-from a weighted fit across those pairs rather than one, and record the disagreement 
-as a quality number per expiry.
+*Fix:* widen each point's band by its expiry's `forward_iv_cost`, or carry the
+two separately so the fit can weight on quote noise while the edge test is
+judged against both. Decide which before trusting an edge on a long expiry.
 
 ### 2. The rate is 4% flat and unverified 
 
 `vol.CONFIG["rate"]`. It has never been checked against an actual short rate.
-A 1% error moves a 30-day forward by about six cents, so this matters less
-than the item above, but it is an untested input.
+A 1% error moves a 30-day forward by about six cents, which is inside the
+forward's own measured error bar on the long expiries, so this matters less
+than it looks. It is still an untested input.
 (as of market close on october 2, 2026 tbill yields ~4-4.5%)
 
 
@@ -81,6 +82,18 @@ against the measured bands.
 - **The fit's shape.** Residual sign flips are recorded per expiry. A good fit
   scatters; long same-sign runs mean the shape is wrong, which is how both
   rejected fits were caught.
+- **The forward resting on one strike pair.** It used to come from the single
+  strike where call and put mids were closest. Checking every pair in the
+  0.35-0.65 delta band showed they disagree by up to 31 cents on the 29-day
+  expiry, and the disagreement is a slope in strike, not scatter: one sign flip
+  in 21. It tracks the pair's width asymmetry at +0.93, so the cause is the mid
+  of a wide in-the-money quote not being its fair value. Timing was ruled out -
+  those pairs were quoted inside two seconds and SPY moved three cents.
+  Averaging cannot cure a bias, so `vol.forward()` gates pairs on asymmetry
+  within 0.05 and only then averages the tightest survivors, weighted
+  1/width^2 against the noise that is left. Regressing the bias out was tried
+  and rejected: the fitted slope ranged 0.11 to 1.93 across one chain's
+  expiries. See docs/measurements.md.
 
 ## Standing rules
 
@@ -93,3 +106,6 @@ against the measured bands.
   sign.
 - A number without an error bar is not a result. Points carry their IV band;
   anything built on top of them needs the equivalent.
+- Before averaging several readings of the same quantity, check whether they
+  scatter or slope. A slope means a bias, and averaging a bias just picks a
+  point on it. This is what the per-pair forwards turned out to be doing.

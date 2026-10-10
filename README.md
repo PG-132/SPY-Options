@@ -23,6 +23,8 @@ Everything runs through `app.py`, from this folder:
 
     python app.py plan     which contracts a snapshot would pull (read-only)
     python app.py snap     take one chain snapshot, saved under data/chains/
+    python app.py iv       solve our own IVs for the newest snapshot
+    python app.py surface  fit a smile per expiry and score every point off it
 
 With no command (VS Code's Run button), `app.py` runs `plan`.
 
@@ -35,8 +37,13 @@ bid/ask go stale, and `snap` warns you.
     app.py                the one entry point
     screener/collect.py   chain snapshots; the only file that talks to Webull
                           (market data only, so it can't place orders)
+    screener/pricing.py   Black-Scholes in forward terms, and the IV solver
+    screener/vol.py       our own IVs per snapshot: forward, bands, our Greeks
+    screener/surface.py   the gates, the smile fit, and what sits off it
     tests/                offline tests with a fake Webull:
                           python -m unittest discover tests
     docs/measurements.md  what produced every constant in the code
-    data/chains/          one folder per snapshot, created on the first `snap`
+    docs/integrity.md     what could still be wrong, and how we would know
+    trades/               paper trades, one folder each
+    data/                 snapshots and everything derived from them; not in git
 

@@ -191,3 +191,120 @@ class TestQuoteHandling(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+T29 = 29 / 365
+DISC29 = math.exp(-RATE * T29)
+
+
+def pair(K, cw, pw, bias=0.0, put_mid=8.0, F=FORWARD, disc=DISC29):
+    """One strike quoted both sides, built from parity so an unbiased pair
+    recovers F exactly: C - P = disc * (F - K). `bias` perturbs the call mid,
+    which is what a wide quote's unreliable mid does in practice."""
+    call_mid = put_mid + disc * (F - K) + bias
+    return K, {
+        "C": {"strike": K, "right": "C",
+              "bid": call_mid - cw / 2, "ask": call_mid + cw / 2},
+        "P": {"strike": K, "right": "P",
+              "bid": put_mid - pw / 2, "ask": put_mid + pw / 2},
+    }
+
+
+class TestForward(unittest.TestCase):
+    """The forward is the one number every IV in an expiry is solved against,
+    so it gets its own error bar. See docs/integrity.md and measurements.md:
+    the per-pair disagreement is a bias that tracks width asymmetry, not noise,
+    so it is gated out rather than averaged away."""
+
+    def test_rejects_a_pair_whose_legs_are_quoted_unevenly(self):
+        """The strike nearest the money has the closest call and put mids,
+        which is what the old rule picked. If that pair's call is quoted far
+        wider than its put, its mid is biased and the whole expiry inherits it."""
+        by_strike = dict([pair(766.0, cw=0.40, pw=0.04, bias=0.30)]
+                         + [pair(K, cw=0.04, pw=0.04)
+                            for K in (763.0, 764.0, 765.0, 767.0, 768.0, 769.0)])
+        got = vol.forward(by_strike, DISC29)
+        self.assertAlmostEqual(got["forward"], FORWARD, places=4)
+        self.assertNotIn(766.0, got["strikes"], "the uneven pair should not be used")
+        self.assertEqual(got["eligible"], 6)
+
+    def test_an_evenly_quoted_wide_pair_is_still_usable(self):
+        """Width alone is not the disqualifier. A pair quoted 0.20 on both
+        sides is noisy but unbiased, and total width only predicted the
+        deviation at -0.29 against asymmetry's +0.93."""
+        by_strike = dict(pair(760.0 + i, cw=0.20, pw=0.20) for i in range(6))
+        got = vol.forward(by_strike, DISC29)
+        self.assertEqual(got["eligible"], 6)
+        self.assertAlmostEqual(got["forward"], FORWARD, places=4)
+
+    def test_reports_the_disagreement_as_its_own_number(self):
+        """Six even pairs that each imply a different forward: what they
+        disagree by is the error bar, and it is not allowed to vanish quietly."""
+        by_strike = dict(pair(760.0 + i, cw=0.04, pw=0.04, bias=0.02 * i)
+                         for i in range(6))
+        got = vol.forward(by_strike, DISC29)
+        self.assertEqual(got["pairs"], 6)
+        self.assertAlmostEqual(got["spread"], 0.10 / DISC29, places=4)
+        self.assertAlmostEqual(got["error"], got["spread"], places=6)
+
+    def test_the_error_bar_never_falls_below_what_one_pair_can_be_read_to(self):
+        """One pair cannot disagree with itself, but that is not certainty.
+        The floor is half its combined spread, in forward terms."""
+        got = vol.forward(dict([pair(766.0, cw=0.06, pw=0.06)]), DISC29)
+        self.assertEqual((got["pairs"], got["spread"]), (1, 0.0))
+        self.assertAlmostEqual(got["error"], 0.06 / DISC29, places=6)
+
+    def test_falls_back_to_the_evenest_pair_when_none_are_even(self):
+        """A $5 strike grid on 2026-10-08 left exactly one pair quoted evenly.
+        With none at all, take the evenest and let the error bar say so."""
+        by_strike = dict([pair(760.0, cw=0.30, pw=0.04, bias=0.30),
+                          pair(765.0, cw=0.12, pw=0.04, bias=0.05),
+                          pair(770.0, cw=0.20, pw=0.04, bias=0.20)])
+        got = vol.forward(by_strike, DISC29)
+        self.assertEqual((got["eligible"], got["pairs"]), (1, 1))
+        self.assertEqual(got["strikes"], [765.0], "should keep the evenest pair")
+        self.assertGreater(got["error"], 0.0)
+
+    def test_uses_no_more_pairs_than_asked_for(self):
+        by_strike = dict(pair(760.0 + i, cw=0.04, pw=0.04) for i in range(20))
+        self.assertEqual(vol.forward(by_strike, DISC29, want=3)["pairs"], 3)
+
+    def test_skips_strikes_quoted_on_one_side_only(self):
+        by_strike = dict([pair(K, cw=0.04, pw=0.04) for K in (765.0, 766.0, 767.0)])
+        del by_strike[766.0]["P"]
+        got = vol.forward(by_strike, DISC29)
+        self.assertEqual(got["strikes"], [765.0, 767.0])
+
+    def test_says_so_when_the_pairs_do_not_bracket_the_forward(self):
+        near = dict(pair(K, cw=0.04, pw=0.04) for K in (765.0, 766.0, 767.0))
+        self.assertTrue(vol.forward(near, DISC29)["brackets"])
+        far = dict(pair(K, cw=0.04, pw=0.04, put_mid=70.0) for K in (700.0, 701.0, 702.0))
+        self.assertFalse(vol.forward(far, DISC29)["brackets"])
+
+    def test_no_pair_at_all_returns_nothing(self):
+        self.assertIsNone(vol.forward({}, DISC29))
+        one_sided = dict([pair(766.0, cw=0.04, pw=0.04)])
+        del one_sided[766.0]["C"]
+        self.assertIsNone(vol.forward(one_sided, DISC29))
+
+
+class TestForwardIVCost(unittest.TestCase):
+    def test_turns_cents_of_forward_into_vol_points(self):
+        """Measured on the Sep-24 chain: ten cents of forward is about six
+        hundredths of a vol point on a 29-day at-the-money option."""
+        iv = 0.13
+        mid = pricing.bs("C", FORWARD, 766.0, T29, iv, DISC29)["price"]
+        contracts = [{"strike": 766.0, "right": "C", "mid": mid, "iv": iv}]
+        cost = vol.forward_iv_cost(contracts, FORWARD, 0.10, T29, DISC29)
+        self.assertAlmostEqual(cost, 0.0006, places=4)
+
+    def test_a_forward_with_no_spread_costs_nothing(self):
+        contracts = [{"strike": 766.0, "right": "C", "mid": 20.0, "iv": 0.13}]
+        self.assertIsNone(vol.forward_iv_cost(contracts, FORWARD, 0.0, T29, DISC29))
+        self.assertIsNone(vol.forward_iv_cost([], FORWARD, 0.10, T29, DISC29))
+
+    def test_an_unsolvable_shift_is_reported_as_unknown_not_zero(self):
+        """Push the forward far enough and the mid falls under the new
+        no-arbitrage floor. That is not a cost of zero."""
+        contracts = [{"strike": 766.0, "right": "C", "mid": 0.02, "iv": 0.13}]
+        self.assertIsNone(vol.forward_iv_cost(contracts, FORWARD, 500.0, T29, DISC29))
