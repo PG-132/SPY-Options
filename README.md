@@ -42,6 +42,7 @@ bid/ask go stale, and `snap` warns you.
     screener/surface.py   the gates, the smile fit, and what sits off it
     tests/                offline tests with a fake Webull:
                           python -m unittest discover tests
+    docs/concepts.md      the mechanisms, and what each output column means
     docs/measurements.md  what produced every constant in the code
     docs/integrity.md     what could still be wrong, and how we would know
     trades/               paper trades, one folder each

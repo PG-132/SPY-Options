@@ -221,6 +221,51 @@ Note that on the two longest expiries the forward's error already exceeds the
 median quote band, at 1.21x and 1.17x. The forward is the largest error there,
 not the spreads, and `vol.py` warns when that happens.
 
+## What a wrong forward costs a residual (2026-10-11)
+
+The forward now carries an error bar, so the question is what that error is
+worth to the thing surface.py actually reports: a point's deviation from the
+fitted curve. The answer is much less than its effect on the IV level, because
+a forward error is not noise on one strike. It moves every IV in the expiry
+together AND drags the log-moneyness axis with it, so the fitted curve follows
+and most of the error cancels.
+
+Measured by shifting each expiry's forward by its own error bar, re-solving
+every IV and refitting:
+
+| Expiry | Forward error | Median move in IV | Median move in residual | Cancelled |
+| --- | --- | --- | --- | --- |
+| 2026-09-29 | 1.5c | 0.008 | 0.002 | 75% |
+| 2026-10-07 | 6.0c | 0.023 | 0.005 | 78% |
+| 2026-10-09 | 8.0c | 0.029 | 0.010 | 66% |
+| 2026-10-16 | 8.7c | 0.027 | 0.008 | 70% |
+| 2026-10-23 | 11.6c | 0.034 | 0.010 | 71% |
+
+So widening each point's band by its raw IV sensitivity would be about three
+times too harsh, and would have deleted every edge in the snapshot.
+
+What survives still matters, because it is the same size as the deviations
+being hunted. Shifting every forward by its error bar flips 139 of 1,246
+points' clears-its-spread verdict, concentrated on the long expiries: 35 of
+132 on 2026-10-16, 32 of 135 on 2026-10-23, 23 of 120 on 2026-10-09. The
+largest edge anywhere in the snapshot is 0.08 vol points, so a 0.010 shift is
+an eighth of the biggest thing we ever find.
+
+And it is nowhere near uniform within an expiry. On the 29-day the per-point
+residual sensitivity runs from 0.000 to 0.093 vol points, a hundredfold
+spread, so a single number per expiry would be too harsh for most points and
+too lenient for the few that matter.
+
+That rules out both shortcuts, so it is measured per point instead:
+`vol.py` solves each mid at the forward plus and minus its error bar,
+`surface.py` refits the smile on each of those readings against its own
+shifted axis, and `forward_cost` is how far that point's residual moved. An
+edge counts only when it clears its spread and outlasts this.
+
+On the Sep-24 chain the effect is large: 88 points cleared their spread, and
+34 of those also clear the forward. The 54 that die include a +0.03 edge on
+the 2026-10-06 801 call against a 0.07 forward cost.
+
 ## Two smile shapes that failed, and the test that caught them (2026-09-24)
 
 Residuals from a good fit scatter, so their signs flip about half the time
@@ -274,3 +319,56 @@ model, so neighbouring quotes are correlated by construction.
 spread to sell and 52 to buy, the largest edge being 0.08 vol points on a
 contract whose own band is 0.20. In SPY, nothing is loose. The surface earns
 its keep as a reference and a data check, not as a source of free money.
+## What happens when spreads widen (2026-10-11)
+
+Every constant in this repo was set on one chain, 2026-09-24, with ATM IV at
+13% and most of the book quoted a penny wide. So: keep every mid, multiply
+every spread, and see what gives.
+
+| Spreads | Readable points | Cut by band | Median band | Edges found |
+| --- | --- | --- | --- | --- |
+| 1x | 992 | 45 | 0.069 | 34 |
+| 2x | 959 | 242 | 0.132 | 12 |
+| 3x | 945 | 302 | 0.200 | 0 |
+| 5x | 748 | 499 | 0.301 | 0 |
+| 8x | 389 | 858 | 0.400 | 0 |
+
+**At 3x the screener finds nothing.** Not few, none, and 3x is a modest
+stress. It is not the gates giving way: readable points only fall from 992 to
+945. It is structural. `edge_at_bid` is the IV at the BID minus the curve, so
+widening a quote pushes the bid IV down and the ask IV up directly, and a
+deviation has to beat the half-spread. At 3x not one deviation in 1,247
+contracts does.
+
+Zero is the correct answer, which is the uncomfortable part. The edge test
+asks whether a mispricing is bigger than the cost of taking it, and in a wide
+market it genuinely is not. The deviations here are 0.02 to 0.08 vol points
+and they are only visible when crossing is cheap, which is only true when
+nothing is happening.
+
+(The `cut:vega` column is not shown because it is an artifact of ordering:
+`readable()` tests band before vega, so a point failing both is counted
+against band. The vega gate does not loosen as spreads widen.)
+
+**The fitted shape is not the fragile part.** A whole-number move in vol is a
+smaller stretch than the basis already handles across strikes:
+
+| Expiry | Lowest IV | ATM | Highest IV | Range |
+| --- | --- | --- | --- | --- |
+| 2026-09-28 | 9.50% | 10.38% | 29.10% | 3.06x |
+| 2026-10-09 | 10.73% | 12.58% | 35.78% | 3.33x |
+| 2026-10-23 | 11.00% | 13.05% | 39.17% | 3.56x |
+
+One curve on the 29-day expiry spans 11.00% to 39.17% at an RMS of 0.023 vol
+points. What this does NOT test is whether the shape changes character under
+stress - in a selloff the at-the-money level rises and the put skew tends to
+flatten against it, which is a different curve rather than a scaled one. A
+quiet Thursday cannot answer that. Only a captured stressed chain can.
+
+**What it did surface.** The asymmetry gate is a cliff. At 3x spreads the
+2026-10-05 pairs sit at 0.030, 0.060, 0.060, 0.060 and 0.090, so a gate at
+0.05 keeps one of five comparable readings. When nothing passes the gate the
+bias is the dominant error, so `vol.forward()` now weights 1/(asymmetry^2)
+over all the pairs instead of taking the single evenest. That keeps six pairs
+where it used to keep one, while still giving the best pair 92% of the vote on
+2026-10-08, where the runner-up really is five times worse.

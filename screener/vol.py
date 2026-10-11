@@ -99,7 +99,8 @@ CONTRACT_COLS = ["symbol", "expiry", "dte", "sessions", "strike", "right", "bid"
                  "mid", "spread", "spread_pct", "open_interest", "volume",
                  "quote_age_min", "iv", "iv_bid", "iv_ask", "iv_band", "delta", "gamma",
                  "theta", "vega", "vendor_iv", "iv_vs_vendor", "moves_from_forward",
-                 "forward", "spot_used", "quote_time_et"]
+                 "forward", "forward_error", "iv_fwd_hi", "iv_fwd_lo",
+                 "spot_used", "quote_time_et"]
 EXPIRY_COLS = ["expiry", "dte", "days_to_expiry", "sessions", "forward", "forward_error",
                "forward_iv_cost", "forward_pairs", "forward_from_spot", "forward_gap",
                "atm_strike", "atm_iv", "atm_iv_per_session", "iv_25d_put", "iv_10d_put",
@@ -233,17 +234,28 @@ def forward(by_strike, disc, want=None):
     if not pairs:
         return None
 
+    want = max(1, want or CONFIG["forward_pairs"])
     eligible = [p for p in pairs if abs(p["asymmetry"]) <= CONFIG["forward_max_asymmetry"]]
-    if not eligible:
-        # A grid too coarse to hold an even pair. Take the evenest there is and
-        # let the error bar carry the damage.
-        eligible = sorted(pairs, key=lambda p: abs(p["asymmetry"]))[:1]
-
-    # tightest first, then nearest the money: among equally tight pairs the one
-    # whose call and put agree is the one sitting closest to the forward.
-    eligible.sort(key=lambda p: (p["width"], p["mid_gap"]))
-    used = eligible[:max(1, want or CONFIG["forward_pairs"])]
-    weights = [1.0 / max(p["width"], 0.01) ** 2 for p in used]
+    if eligible:
+        # Bias is already handled by the gate, so what is left is noise, and
+        # noise is what the width measures. Tightest first, then nearest the
+        # money: among equally tight pairs the one whose call and put agree is
+        # the one sitting closest to the forward.
+        eligible.sort(key=lambda p: (p["width"], p["mid_gap"]))
+        used = eligible[:want]
+        weights = [1.0 / max(p["width"], 0.01) ** 2 for p in used]
+    else:
+        # Nothing is quoted evenly enough for its bias to be negligible, so
+        # the bias is now the dominant error and the weighting has to target
+        # that instead. Weighting rather than taking the single evenest,
+        # because the gate is a cliff: on 2026-10-05 with spreads at 3x, one
+        # pair sat at 0.030 and three more at 0.060, and a cliff at 0.05 keeps
+        # one of the four. Inverse-square weighting keeps all four and lets
+        # the best one hold most of the vote - 54% there, against 92% on
+        # 2026-10-08 where the runner-up really is five times worse.
+        pairs.sort(key=lambda p: (abs(p["asymmetry"]), p["mid_gap"]))
+        used = pairs[:want]
+        weights = [1.0 / (p["asymmetry"] ** 2 + 0.01 ** 2) for p in used]
     F = sum(w * p["forward"] for w, p in zip(weights, used)) / sum(weights)
 
     reads = [p["forward"] for p in used]
@@ -287,10 +299,17 @@ def quote_age(row):
     return round((now - then).total_seconds() / 60, 2) if then and now else None
 
 
-def read_strike(row, right, strike, F, T, disc, spot):
+def read_strike(row, right, strike, F, T, disc, spot, fwd_error=0.0):
     """One strike, translated: IV from the mid, the band from bid and ask, and
     our own Greeks at our own IV. Returns None when no IV exists, which is
     honest rather than a gap-filled guess.
+
+    The same mid is also solved at F plus and minus the forward's error bar.
+    A wrong forward does not move one strike: it moves the whole expiry at
+    once and drags the log-moneyness axis with it, so most of it cancels out
+    of a deviation from the fitted curve. How much is left is not something
+    this file can know, because it depends on how the curve moves too. It
+    hands surface.py the two shifted readings and lets the fit answer.
 
     Liquidity comes along as plain facts: open interest, volume, the spread
     and its share of premium, and the quote's age. Nothing is judged here. The
@@ -303,6 +322,12 @@ def read_strike(row, right, strike, F, T, disc, spot):
     except pricing.SolveError:
         return None
     g = pricing.bs(right, F, strike, T, iv, disc)
+
+    def at_forward(shifted):
+        try:
+            return round(pricing.implied_vol(right, mid(row), shifted, strike, T, disc), 6)
+        except pricing.SolveError:
+            return None          # the mid falls under the shifted floor: unknown, not zero
 
     vendor = _f(row.get("vendor_iv"))
     spread = _f(row["ask"]) - _f(row["bid"])
@@ -317,7 +342,9 @@ def read_strike(row, right, strike, F, T, disc, spot):
         "delta": round(g["delta"], 6), "gamma": round(g["gamma"], 6),
         "theta": round(g["theta"], 6), "vega": round(g["vega"], 6),
         "vendor_iv": vendor, "iv_vs_vendor": round(iv - vendor, 6) if vendor else None,
-        "forward": round(F, 4), "spot_used": spot, "quote_time_et": row.get("quote_time_et"),
+        "forward": round(F, 4), "forward_error": round(fwd_error, 4),
+        "iv_fwd_hi": at_forward(F + fwd_error), "iv_fwd_lo": at_forward(F - fwd_error),
+        "spot_used": spot, "quote_time_et": row.get("quote_time_et"),
     }
 
 
@@ -381,7 +408,7 @@ def one_expiry(expiry, rows, spots, started, warnings):
         if right not in sides:
             continue
         spot = spot_at(sides[right].get("quote_time_et"), spots)
-        c = read_strike(sides[right], right, k, F, T, disc, spot)
+        c = read_strike(sides[right], right, k, F, T, disc, spot, fwd["error"])
         if c is not None:
             contracts.append(c)
     if len(contracts) < 3:

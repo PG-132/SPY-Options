@@ -254,15 +254,21 @@ class TestForward(unittest.TestCase):
         self.assertEqual((got["pairs"], got["spread"]), (1, 0.0))
         self.assertAlmostEqual(got["error"], 0.06 / DISC29, places=6)
 
-    def test_falls_back_to_the_evenest_pair_when_none_are_even(self):
-        """A $5 strike grid on 2026-10-08 left exactly one pair quoted evenly.
-        With none at all, take the evenest and let the error bar say so."""
-        by_strike = dict([pair(760.0, cw=0.30, pw=0.04, bias=0.30),
-                          pair(765.0, cw=0.12, pw=0.04, bias=0.05),
-                          pair(770.0, cw=0.20, pw=0.04, bias=0.20)])
+    def test_weights_on_asymmetry_when_no_pair_is_even_enough(self):
+        """With nothing through the gate the bias is the dominant error, so
+        the weighting targets asymmetry instead of width. All the pairs stay -
+        the gate is a cliff, and on 2026-10-05 at 3x spreads it would keep one
+        pair at 0.030 while dropping three at 0.060."""
+        by_strike = dict([pair(760.0, cw=0.30, pw=0.04, bias=0.30),   # asym 0.26
+                          pair(765.0, cw=0.12, pw=0.04, bias=0.05),   # asym 0.08
+                          pair(770.0, cw=0.20, pw=0.04, bias=0.20)])  # asym 0.16
         got = vol.forward(by_strike, DISC29)
-        self.assertEqual((got["eligible"], got["pairs"]), (1, 1))
-        self.assertEqual(got["strikes"], [765.0], "should keep the evenest pair")
+        self.assertEqual(got["eligible"], 0, "nothing should pass the gate")
+        self.assertEqual(got["pairs"], 3, "but none of them get thrown away")
+        evenest = FORWARD + 0.05 / DISC29
+        flat = FORWARD + (0.30 + 0.05 + 0.20) / 3 / DISC29
+        self.assertLess(abs(got["forward"] - evenest), abs(got["forward"] - flat),
+                        "the evenest pair should hold most of the vote")
         self.assertGreater(got["error"], 0.0)
 
     def test_uses_no_more_pairs_than_asked_for(self):

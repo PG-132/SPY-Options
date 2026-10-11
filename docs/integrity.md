@@ -12,21 +12,7 @@ strike items off when they are checked rather than when they feel fine.
 
 
 
-### 1. The forward's error bar is not carried into each point
-
-Fixed as far as the forward itself goes (see Handled), but only half the job.
-`expiries.csv` now records `forward_error` and `forward_iv_cost`, and on
-2026-10-16 and 2026-10-23 that cost is 1.2x the median quote band: the forward
-is the largest error in those expiries, not the spreads. Yet each contract's
-`iv_band` still reflects only its own bid and ask, so every point on those two
-expiries carries an error bar that is too small, and `surface.py` weights by
-1/band^2 and reads edges against it.
-
-*Fix:* widen each point's band by its expiry's `forward_iv_cost`, or carry the
-two separately so the fit can weight on quote noise while the edge test is
-judged against both. Decide which before trusting an edge on a long expiry.
-
-### 2. The rate is 4% flat and unverified 
+### 1. The rate is 4% flat and unverified 
 
 `vol.CONFIG["rate"]`. It has never been checked against an actual short rate.
 A 1% error moves a 30-day forward by about six cents, which is inside the
@@ -38,7 +24,7 @@ than it looks. It is still an untested input.
 *Fix:* read `^IRX` at snapshot time and record it alongside the quotes, so
 history re-derives under whatever rate actually applied that day.
 
-### 3. The holiday table is hand-typed, and half-days are missing 
+### 2. The holiday table is hand-typed, and half-days are missing 
 
 `vol.HOLIDAYS` was typed from memory, not imported. Worse, early closes are
 not modelled at all: the Friday after Thanksgiving and Christmas Eve trade a
@@ -50,7 +36,7 @@ comparison between expiries. Dormant until late November, then real.
 *How we would know:* a day the whole chain prices as cheap per session, with
 no event to explain it, sitting next to a known holiday.
 
-### 4. European math on American options 
+### 3. European math on American options 
 
 `pricing.bs` is European. SPY options are American. Reading only the
 out-of-the-money side avoids the worst of it, since early exercise is a
@@ -59,12 +45,25 @@ deep-in-the-money phenomenon, but the exposure is not zero.
 *How we would know:* bound it. Price a few of our actual strikes under a
 binomial tree and compare. If the gap is inside the IV band, stop worrying.
 
-### 5. Webull is not an independent check 
+### 4. Webull is not an independent check 
 
 Our IVs agreeing with theirs to 0.11 points is reassuring but not proof: a
 shared convention error would agree with itself. The genuinely independent
 checks are put-call parity, the frozen reference cases, and the fit's RMS
 against the measured bands.
+
+### 5. The fitted shape is untested outside a calm market
+
+Every constant here was set on one chain, 2026-09-24, with ATM IV at 13%.
+Widening its spreads shows the machinery degrades honestly, but that cannot
+test the shape, because widening leaves every mid untouched. The basis already
+fits 11.00% to 39.17% within one expiry, so dynamic range is not the worry. A
+selloff is: the at-the-money level rises and the put skew tends to flatten
+against it, which is a different curve rather than a scaled one.
+
+*How we would know:* capture a chain with VIX materially higher and re-run the
+residual sign-flip test. Flips near half the point count mean the basis still
+fits; long same-sign runs mean it does not, the way the cubic was caught.
 
 ## Handled, and why
 
@@ -94,6 +93,13 @@ against the measured bands.
   1/width^2 against the noise that is left. Regressing the bias out was tried
   and rejected: the fitted slope ranged 0.11 to 1.93 across one chain's
   expiries. See docs/measurements.md.
+- **The forward's error reaching each point.** Its error bar is now carried
+  into every edge reading, as `forward_cost` per point. It is measured against
+  a refit at the shifted forward rather than assumed, because a forward error
+  moves the whole expiry together and the curve follows: about 70% cancels out
+  of a residual, so each point's raw IV sensitivity overstates it threefold.
+  An edge now has to clear its spread AND outlast this. On the Sep-24 chain
+  that took 88 spread-clearing edges down to 34.
 
 ## Standing rules
 
@@ -109,3 +115,6 @@ against the measured bands.
 - Before averaging several readings of the same quantity, check whether they
   scatter or slope. A slope means a bias, and averaging a bias just picks a
   point on it. This is what the per-pair forwards turned out to be doing.
+- An error that moves a whole expiry at once is not the same size in a level
+  as it is in a deviation from the fitted curve. Measure which one a reading
+  depends on before widening its band.

@@ -39,6 +39,9 @@ For every point, the fitted IV and three readings:
                 could sell this strike above the curve, after crossing.
   edge_at_ask   the fitted curve minus the IV at the ASK. Positive means you
                 could buy it below the curve.
+  forward_cost  how much of the deviation the forward's own error bar could
+                account for, measured by refitting at the shifted forward.
+                An edge has to outlast this as well as the spread.
 
 Residual alone flatters the wings, where half a cent of quote is a vol point.
 The edge readings ask the only question that pays: is the deviation bigger
@@ -73,10 +76,11 @@ OUT_DIR = ROOT / "data" / "surface"
 
 POINT_COLS = ["symbol", "expiry", "dte", "sessions", "strike", "right", "moneyness",
               "delta", "iv", "iv_bid", "iv_ask", "iv_band", "fitted_iv", "residual",
-              "edge_at_bid", "edge_at_ask", "readable", "tradeable", "why_not",
+              "edge_at_bid", "edge_at_ask", "forward_cost", "readable", "tradeable", "why_not",
               "spread_pct", "open_interest", "volume", "vega", "forward"]
-FIT_COLS = ["expiry", "dte", "sessions", "forward", "points_fitted", "points_dropped",
-            "rms_vol_pts", "median_band", "worst_residual", "sign_changes", "atm_fitted",
+FIT_COLS = ["expiry", "dte", "sessions", "forward", "forward_error", "points_fitted",
+            "points_dropped", "rms_vol_pts", "median_band", "median_forward_cost",
+            "worst_residual", "sign_changes", "atm_fitted",
             "slope_at_atm", "curvature", "m", "s", "c0", "c1", "c2", "c3", "c4"]
 
 
@@ -262,8 +266,9 @@ def load_points(folder):
             p = {k: r[k] for k in ("symbol", "expiry", "right")}
             for k in ("dte", "sessions", "strike", "delta", "iv", "iv_bid", "iv_ask",
                       "iv_band", "vega", "forward", "spread_pct", "open_interest",
-                      "volume", "quote_age_min"):
-                p[k] = _f(r[k])
+                      "volume", "quote_age_min", "forward_error", "iv_fwd_hi",
+                      "iv_fwd_lo"):
+                p[k] = _f(r.get(k))     # snapshots written before a column exist
             p["moneyness"] = math.log(p["strike"] / p["forward"])
             p["readable"], why = readable(p)
             p["tradeable"], why_trade = (tradeable(p) if p["readable"] else (False, why))
@@ -282,6 +287,45 @@ def score(points, curve):
         p["edge_at_ask"] = round(fit - p["iv_ask"], 6)      # buy below it?
 
 
+def forward_cost(points, curve, shifted):
+    """How much of each point's deviation the forward's error bar could
+    account for, in vol points.
+
+    A wrong forward is not noise on one strike. It moves every IV in the
+    expiry together and drags the log-moneyness axis with it, so the curve
+    follows and most of the error cancels out of a residual: measured on the
+    Sep-24 chain, 0.034 vol points of IV movement at 29 days leaves 0.010 in
+    the residual, about 70% gone.
+
+    What is left still matters, because it is the same size as the deviations
+    we are looking for. Shifting every forward by its own error bar flipped
+    139 of 1,246 points' clears-its-spread verdict, 35 of 132 on 2026-10-16.
+    And it is nowhere near uniform within an expiry - 0.000 to 0.093 vol
+    points on the 29-day - so it cannot be one number per expiry.
+
+    So it is measured rather than modelled: refit the smile on the IVs solved
+    at the shifted forward, against the shifted axis, and see how far each
+    point's residual moved. `shifted` is a list of (curve, iv_key, forward)
+    for the readings either side.
+    """
+    for p in points:
+        worst = 0.0
+        for shift_curve, iv_key, shift_fwd in shifted:
+            iv = p.get(iv_key)
+            if iv is None or not shift_curve or not shift_fwd:
+                continue
+            moved = (iv - shift_curve(math.log(p["strike"] / shift_fwd))) - p["residual"]
+            worst = max(worst, abs(moved))
+        p["forward_cost"] = round(worst, 6)
+
+
+def survives_the_forward(p, key):
+    """An edge has to clear the spread AND outlast the forward's error bar.
+    `edge_at_bid`/`edge_at_ask` already have the spread in them, since they
+    are read at the bid and the ask rather than the mid."""
+    return p[key] > p.get("forward_cost", 0.0)
+
+
 def analyse(folder):
     """Fit every expiry in a snapshot, score every point, write both files."""
     points = load_points(folder)
@@ -295,6 +339,19 @@ def analyse(folder):
         if curve is None:
             continue
         score(group, curve)
+
+        # The same quotes, re-read at each end of the forward's error bar.
+        shifted = []
+        err = group[0].get("forward_error") or 0.0
+        for iv_key, sign in (("iv_fwd_hi", +1), ("iv_fwd_lo", -1)):
+            shift_fwd = group[0]["forward"] + sign * err
+            if not err or shift_fwd <= 0:
+                continue
+            alt = [dict(q, moneyness=math.log(q["strike"] / shift_fwd), iv=q[iv_key])
+                   for q in group if q.get(iv_key) is not None]
+            alt_curve, _, _ = fit_expiry(alt)
+            shifted.append((alt_curve, iv_key, shift_fwd))
+        forward_cost(group, curve, shifted)
         scored += group
         used.sort(key=lambda p: p["moneyness"])
         resid = [abs(p["residual"]) for p in used]
@@ -310,6 +367,9 @@ def analyse(folder):
             "slope_at_atm": round((curve(h) - curve(-h)) / (2 * h), 4),
             "curvature": round((curve(h) - 2 * atm + curve(-h)) / (h * h), 2),
             "median_band": round(sorted(p["iv_band"] for p in used)[len(used) // 2] * 100, 4),
+            "forward_error": round((group[0].get("forward_error") or 0.0), 4),
+            "median_forward_cost": round(
+                sorted(p["forward_cost"] for p in used)[len(used) // 2] * 100, 4),
             # A good fit leaves residuals scattered, so their signs flip about
             # half the time. Long same-sign runs mean the shape is wrong, which
             # is how the cubic that came before this was caught.
@@ -347,16 +407,23 @@ def report(folder, fits, points, dest):
               f"{f['atm_fitted']*100:>8.2f}%{f['rms_vol_pts']:>7.3f}{f['median_band']:>7.3f}"
               f"{f['worst_residual']:>7.3f}{f['sign_changes']:>7}{f['slope_at_atm']:>8.2f}")
 
-    sellable = [p for p in points if p["tradeable"] and p["edge_at_bid"] > 0]
-    buyable = [p for p in points if p["tradeable"] and p["edge_at_ask"] > 0]
-    print(f"\n  tradeable points that clear their own spread: "
+    crossed_sell = [p for p in points if p["tradeable"] and p["edge_at_bid"] > 0]
+    crossed_buy = [p for p in points if p["tradeable"] and p["edge_at_ask"] > 0]
+    sellable = [p for p in crossed_sell if survives_the_forward(p, "edge_at_bid")]
+    buyable = [p for p in crossed_buy if survives_the_forward(p, "edge_at_ask")]
+    inside = (len(crossed_sell) - len(sellable)) + (len(crossed_buy) - len(buyable))
+    print()
+    print(f"  tradeable points clearing their spread AND the forward: "
           f"{len(sellable)} to sell, {len(buyable)} to buy, "
           f"of {sum(1 for p in points if p['tradeable']):,} tradeable")
+    print(f"    {inside} more cleared the spread but sit inside the forward's "
+          f"own error bar")
     for label, group, key in (("sell above the curve", sellable, "edge_at_bid"),
                               ("buy below the curve", buyable, "edge_at_ask")):
         for p in sorted(group, key=lambda p: -p[key])[:5]:
             print(f"    {label:<22}{p['expiry']}  {p['strike']:>6g}{p['right']}  "
-                  f"{p[key]*100:+.2f} pts  (band {p['iv_band']*100:.2f})")
+                  f"{p[key]*100:+.2f} pts  (band {p['iv_band']*100:.2f}, "
+                  f"forward {p['forward_cost']*100:.2f})")
     try:
         shown = dest.relative_to(ROOT)
     except ValueError:
