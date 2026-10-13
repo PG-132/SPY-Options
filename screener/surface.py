@@ -105,16 +105,25 @@ def readable(p):
 
 
 def tradeable(p):
-    """Could you act on it? Missing open interest counts as unknown rather
-    than zero: Webull leaves the field blank on newly listed expiries, and
-    treating that as nobody-there would delete whole expiries that trade."""
+    """Could you act on it?
+
+    The two blank fields are read in opposite directions, which is measured
+    rather than assumed. Missing OPEN INTEREST is unknown: Webull leaves it
+    blank on newly listed expiries, and treating that as nobody-there would
+    delete whole expiries that trade fine. Missing VOLUME is zero: across the
+    2026-10-12 chain `deal_amount` is populated on 1,554 of 1,554 contracts
+    that report a volume and on 0 of 632 that do not, and the blanks have
+    median open interest of 1 against 454. Webull simply never sends a zero
+    here, so reading blank as unknown made `min_volume` unable to reject
+    anything at all - it let 70 untraded contracts through on 2026-09-24,
+    including that snapshot's single largest edge."""
     if p["spread_pct"] > CONFIG["max_spread_pct"]:
         return False, f"spread {p['spread_pct']*100:.0f}% of premium"
     oi = p["open_interest"]
     if oi is not None and oi < CONFIG["min_open_interest"]:
         return False, f"open interest {oi:.0f}"
     vol = p["volume"]
-    if vol is not None and vol < CONFIG["min_volume"]:
+    if vol is None or vol < CONFIG["min_volume"]:
         return False, "no trades today"
     age = p["quote_age_min"]
     if age is not None and age > CONFIG["max_quote_age_min"]:

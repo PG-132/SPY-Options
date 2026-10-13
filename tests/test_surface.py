@@ -74,6 +74,15 @@ class TestGates(unittest.TestCase):
         ok, _ = surface.tradeable(point(700, 0.22, open_interest=None))
         self.assertTrue(ok)
 
+    def test_missing_volume_is_zero_not_unknown(self):
+        """The opposite reading to open interest, and measured: Webull never
+        sends volume 0, it sends blank, and deal_amount is empty on every one
+        of those. Reading it as unknown made the gate unable to reject
+        anything."""
+        ok, why = surface.tradeable(point(700, 0.22, volume=None))
+        self.assertFalse(ok)
+        self.assertIn("no trades", why)
+
 
 class TestFit(unittest.TestCase):
     def test_recovers_a_known_smile(self):

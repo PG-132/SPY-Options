@@ -372,3 +372,46 @@ bias is the dominant error, so `vol.forward()` now weights 1/(asymmetry^2)
 over all the pairs instead of taking the single evenest. That keeps six pairs
 where it used to keep one, while still giving the best pair 92% of the vote on
 2026-10-08, where the runner-up really is five times worse.
+
+## What a second snapshot found (2026-10-12)
+
+First chain since 2026-09-24. Columbus Day, so equities trade but the bond
+market is shut and the session is thin. SPY 777.51 against 763.66, and vol
+lower across the board: ATM runs 9.09% to 12.06% where Sep-24 ran 10.38% to
+13.95%.
+
+The pipeline reproduces. RMS 0.019 to 0.030 vol points against Sep-24's 0.013
+to 0.034, sign flips healthy, agreement with Webull 0.00 to 0.13 and under
+0.04 on nine of twelve expiries. The forward held up better than on Sep-24:
+error 1.0 to 10.0 cents against 1.5 to 11.6, and no expiry where the forward
+outgrew the median quote band, where Sep-24 had two at 1.2x.
+
+**The point of a thin day was to exercise the two liquidity gates that had
+never rejected anything. Neither fired, for two different reasons.**
+
+`min_volume` could not fire at all. Webull never sends a volume of zero: it
+sends the field blank. Across both chains there are 259 blanks in the solved
+contracts and not one contract reporting zero. `tradeable()` read blank as
+unknown, the same as it reads open interest, so the gate was unable to reject
+anything ever.
+
+Blank means untraded, and the raw chain says so unambiguously. On 2026-10-12,
+`deal_amount` is populated on 1,554 of 1,554 contracts that report a volume
+and on 0 of the 632 that do not. Those blanks have median open interest 1
+against 454, median spread $2.62 against $0.01, and median |delta| 0.969 -
+deep in the money, barely held, nobody trading them.
+
+Reading blank as zero takes tradeable from 979 to 909 on 2026-09-24 and from
+749 to 721 on 2026-10-12. It removes three edges from each snapshot, and one
+of them was the single largest edge on the Sep-24 chain: the 2026-10-09 811
+call, +0.08 vol points, on a contract that did not trade that day.
+
+Open interest keeps the opposite reading. Its blanks are newly listed
+expiries, and it does report a genuine zero when it means one - 26 of them on
+2026-10-12.
+
+`max_quote_age_min` has still never fired, but harmlessly. Sep-24 had no quote
+older than 5 minutes; 2026-10-12 had 10, and all 10 had already failed the
+readable gate on band width or vega. Stale quotes are wide quotes, so the band
+catches them first. The age gate is cheap insurance, not a protection that has
+yet done anything.
