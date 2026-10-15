@@ -73,8 +73,18 @@ CONFIG = {
     # being quoted about 3.1 moves up (850 strike, last bid >= $0.05), while
     # puts still carried 1% delta about 6 moves down and stayed bid to the
     # lowest listed strike, 35% below spot.
-    "moves_below": 6,
-    "moves_above": 3,
+    #
+    # Widened from 6/3 on 2026-10-15. Those numbers were sized for relative
+    # value, where a strike whose IV cannot be read is not worth collecting.
+    # A variance swap integral wants the opposite: it weights by 1/K^2 and
+    # uses the price rather than the IV, so the deep puts carry the most
+    # weight and are exactly what 6/3 cut off. Measured against the full
+    # listed chain the old band understated the rate by 0.5 to 1.1 vol
+    # points, and the integral stops moving at about 12 moves - seven of
+    # thirteen expiries gain nothing at all between 12 and 20. See
+    # docs/measurements.md.
+    "moves_below": 12,
+    "moves_above": 6,
     "batch": 20,               # Webull's cap on option contracts per quote request
     "throttle_s": 0.25,        # pause between requests; the rate limit is unmeasured
     "spot_every": 5,           # record SPY's price after every N option batches

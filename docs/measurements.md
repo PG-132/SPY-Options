@@ -415,3 +415,48 @@ older than 5 minutes; 2026-10-12 had 10, and all 10 had already failed the
 readable gate on band width or vega. Stale quotes are wide quotes, so the band
 catches them first. The age gate is cheap insurance, not a protection that has
 yet done anything.
+
+## Widening the collection band (2026-10-15)
+
+The band was 6 expected moves below spot and 3 above. Those numbers were
+sized for relative value, where a strike whose IV cannot be read is not worth
+collecting. A variance swap integral asks the opposite question: it weights
+each strike by 1/K^2 and uses the PRICE, never the IV, so a two-cent put with
+hopeless vega contributes exactly two cents and the deep puts carry the most
+weight of anything in the chain. The old band cut off precisely those.
+
+Measured on one wide snapshot, 3,812 contracts at 20 moves below and 10
+above, by computing the integral twice from the same quotes:
+
+| Expiry | DTE | VS rate at 6/3 | VS rate, full chain | Missed |
+| --- | --- | --- | --- | --- |
+| 2026-10-16 | 1 | 15.92% | 16.97% | +1.06 |
+| 2026-10-23 | 8 | 13.46% | 14.36% | +0.89 |
+| 2026-10-30 | 15 | 14.93% | 15.73% | +0.80 |
+| 2026-11-13 | 29 | 15.94% | 16.46% | +0.52 |
+
+The wide band was not the binding constraint: at 20 moves the formula reached
+for strike 184 on the 29-day and the exchange only lists down to 500, so the
+right-hand column is the whole chain.
+
+Opening the put side in steps shows where it converges. Seven of thirteen
+expiries gain nothing at all between 12 moves and 20, and the 29-day stops
+moving at 10. So the band is now 12 below and 6 above: 3,372 contracts and
+169 requests against 2,570 and 129, about two minutes a snapshot.
+
+**What is left at the short end is truncation, not noise.** The 1-day expiry
+was still gaining +0.18 vol points at 20 moves with no sign of stopping,
+because real strikes remained outside even that band.
+
+It is worth recording that this was first blamed on the tick floor, wrongly.
+Propagating each quote's own half-spread through the integral gives an error
+of 0.03 vol points at 1 DTE, or 0.25 with every quote assumed to err the same
+way - the 2/T factor amplifies the value and its error equally, so it cancels
+out of the relative error. The original claim compared a contribution against
+sigma^2 * T when the integral already returns sigma^2, an error of a factor
+of T.
+
+**Density matters more than maturity.** 2026-10-29 reads a VS-minus-ATM
+spread of +1.40 against about +2.5 on either side of it. It is the 30-strike
+expiry; a coarse grid under-samples the integral, the same way it weakened
+the forward. Any VS rate wants a strike-count quality number beside it.

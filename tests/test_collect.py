@@ -122,14 +122,25 @@ class TestRules(Base):
     def test_band_is_expected_moves_and_follows_the_iv(self):
         below = collect.band_pct(30, IV, "below")
         above = collect.band_pct(30, IV, "above")
-        self.assertAlmostEqual(below, 6 * IV * math.sqrt(30 / 365))
-        self.assertAlmostEqual(above, 3 * IV * math.sqrt(30 / 365))
-        self.assertAlmostEqual(below, 0.2064, places=4)   # 20.6% down, 10.3% up at 12% IV
-        self.assertAlmostEqual(above, 0.1032, places=4)
+        # read the move counts from CONFIG: the rule is what is under test,
+        # not whatever the band happens to be set to this month
+        self.assertAlmostEqual(below, collect.CONFIG["moves_below"] * IV * math.sqrt(30 / 365))
+        self.assertAlmostEqual(above, collect.CONFIG["moves_above"] * IV * math.sqrt(30 / 365))
         # a quarter of the time -> half the band; double the IV -> double the band
         self.assertAlmostEqual(collect.band_pct(7, IV, "below")
                                / collect.band_pct(28, IV, "below"), 0.5)
         self.assertAlmostEqual(collect.band_pct(30, 2 * IV, "above"), 2 * above)
+
+    def test_the_band_arithmetic_against_hand_numbers(self):
+        """One worked case, pinned to its own move counts so the standing
+        band can change without this needing to."""
+        collect.CONFIG["moves_below"], collect.CONFIG["moves_above"] = 6, 3
+        self.assertAlmostEqual(collect.band_pct(30, IV, "below"), 0.2064, places=4)
+        self.assertAlmostEqual(collect.band_pct(30, IV, "above"), 0.1032, places=4)
+        collect.CONFIG["moves_below"], collect.CONFIG["moves_above"] = 12, 6
+        self.assertAlmostEqual(collect.band_pct(30, IV, "below"), 0.4128, places=4)
+        self.assertAlmostEqual(collect.band_pct(30, IV, "above"), 0.2064, places=4)
+
 
     def test_the_put_side_reaches_further_than_the_call_side(self):
         # SPY puts stay bid far out of the money; calls stop being quoted sooner
@@ -191,6 +202,9 @@ class TestPlan(Base):
             self.assertEqual(set(strikes), want, dte)
 
     def test_higher_iv_records_a_wider_band(self):
+        # Deliberately narrow for this one: at the standing band both cases
+        # reach the ends of the fake listing and the comparison says nothing.
+        collect.CONFIG["moves_below"], collect.CONFIG["moves_above"] = 3, 2
         calm, _ = collect.build_plan(self.contracts, SPOT, TODAY, IV)
         wild, _ = collect.build_plan(self.contracts, SPOT, TODAY, 2 * IV)
         for c, w in zip(calm, wild):
