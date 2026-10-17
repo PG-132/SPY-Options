@@ -58,6 +58,7 @@ the whole history from raw quotes.
 
 import csv
 import datetime as dt
+import json
 import math
 import pathlib
 import statistics
@@ -77,6 +78,7 @@ CONFIG = {
     "min_bid": 0.005,               # no bid, no market, no IV
     "forward_pairs": 6,             # the evenest pairs the forward is read from
     "forward_max_asymmetry": 0.05,  # call spread minus put spread, past which the mid is biased
+    "vs_min_strikes": 10,           # below this an integral is not worth computing at all
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -103,9 +105,11 @@ CONTRACT_COLS = ["symbol", "expiry", "dte", "sessions", "strike", "right", "bid"
                  "spot_used", "quote_time_et"]
 EXPIRY_COLS = ["expiry", "dte", "days_to_expiry", "sessions", "forward", "forward_error",
                "forward_iv_cost", "forward_pairs", "forward_from_spot", "forward_gap",
-               "atm_strike", "atm_iv", "atm_iv_per_session", "iv_25d_put", "iv_10d_put",
+               "atm_strike", "atm_iv", "atm_iv_per_session",
+               "vs_rate", "vs_error", "vs_strikes", "vs_edge_cost", "vs_minus_atm", "iv_25d_put", "iv_10d_put",
                "iv_25d_call", "iv_10d_call", "put_skew_25d", "call_skew_25d",
-               "strikes_read", "median_iv_band", "median_vs_vendor", "rate"]
+               "strikes_read", "median_iv_band", "median_vs_vendor", "rate",
+               "collected_band"]
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +134,24 @@ def load(folder):
     spots = [s for s in read_rows(folder / "spot.csv") if _f(s.get("price"))]
     started = min((o["fetched_at"] for o in options), default=None)
     return options, spots, dt.datetime.fromisoformat(started)
+
+
+def collected_band(folder):
+    """The strike band this chain was collected under, as "below/above" in
+    expected moves, straight from run.json.
+
+    It travels with every expiry because a variance swap rate is only as wide
+    as the chain behind it, and nothing else in the output reveals that.
+    `vs_edge_cost` catches a SPARSE grid, where each strike carries a lot, but
+    not a NARROW band, where many small missing contributions add up: the
+    chains taken at 6/3 understate the rate by 0.5 to 1.1 vol points and
+    their edge cost looks fine. Comparing rates across snapshots taken under
+    different bands is comparing different quantities."""
+    try:
+        rules = json.loads((folder / "run.json").read_text(encoding="utf-8"))["rules"]
+        return f"{rules['moves_below']}/{rules['moves_above']}"
+    except (OSError, KeyError, ValueError):
+        return ""
 
 
 def spot_at(quote_time, spots):
@@ -372,7 +394,7 @@ def at_strike(contracts, K):
     return None
 
 
-def one_expiry(expiry, rows, spots, started, warnings):
+def one_expiry(expiry, rows, spots, started, warnings, band=""):
     """Everything for a single expiry: the forward, every strike we can read,
     and the reference points that make it comparable with other expiries."""
 
@@ -419,6 +441,7 @@ def one_expiry(expiry, rows, spots, started, warnings):
     if exp > HOLIDAYS[-1]:
         warnings.append(f"{expiry}: past the holiday table, session count may be wrong")
     atm = at_strike(contracts, F)
+    vsw = variance_swap(by_strike, F, T, disc, fwd["error"])
     # one expected move, for reporting how far out each strike sits
     one_move = atm * math.sqrt(T) if atm else None
     for c in contracts:
@@ -438,6 +461,11 @@ def one_expiry(expiry, rows, spots, started, warnings):
         "forward_pairs": fwd["pairs"],
         "forward_from_spot": round(contracts[len(contracts) // 2]["spot_used"] / disc, 4),
         "atm_strike": atm_k, "atm_iv": round(atm, 6) if atm else None,
+        "vs_rate": _round(vsw["rate"]) if vsw else None,
+        "vs_error": _round(vsw["error"]) if vsw else None,
+        "vs_strikes": vsw["strikes"] if vsw else None,
+        "vs_edge_cost": _round(vsw["edge_cost"]) if vsw else None,
+        "vs_minus_atm": _round(vsw["rate"] - atm) if vsw and atm else None,
         "atm_iv_per_session": (round(atm * math.sqrt(T / (sessions / 252)), 6)
                                if atm and sessions else None),
         "iv_25d_put": _round(p25), "iv_10d_put": _round(p10),
@@ -448,6 +476,7 @@ def one_expiry(expiry, rows, spots, started, warnings):
         "median_iv_band": round(statistics.median(c["iv_band"] for c in contracts), 6),
         "median_vs_vendor": round(statistics.median(gaps), 6) if gaps else None,
         "rate": CONFIG["rate"],
+        "collected_band": band,
     }
     row["forward_gap"] = round(F - row["forward_from_spot"], 4)
     # The forward is meant to be the one thing we know better than the quotes.
@@ -459,6 +488,95 @@ def one_expiry(expiry, rows, spots, started, warnings):
                         f"uncertainty against a {row['median_iv_band'] * 100:.2f} median "
                         f"band; it is the largest error here, not the quotes")
     return row, contracts
+
+
+def variance_swap(by_strike, F, T, disc, fwd_error=0.0):
+    """The fair variance strike: the whole out-of-the-money chain integrated,
+    weighted 1/K^2. The VIX construction.
+
+        sigma^2 = (2/T) sum (dK/K^2) e^{rT} Q(K)  -  (1/T)(F/K0 - 1)^2
+
+    Why this and not the at-the-money level. Implied variance at one strike is
+    a Black-Scholes input that reproduces a price, not the variance of
+    anything, so differencing it across expiries is a convention. The variance
+    swap rate IS additive across time, which is what the term structure needs,
+    and it uses the entire smile instead of one point on it. Measured on the
+    2026-10-15 chain it runs 1.4 to 3.2 vol points above the at-the-money
+    level, and that spread grows with maturity: it is what skew contributes.
+
+    The weighting is not a free choice. It falls out of the replication
+    theorem, which is also why the deep puts matter most and why the
+    collection band was widened to reach them.
+
+    Q(K) is the out-of-the-money side: puts below K0, calls above, and both
+    averaged at K0 itself, where K0 is the largest strike under the forward.
+
+    Two quality numbers come back with it, because this is more fragile than
+    it looks:
+
+      error      the quote spreads propagated through, assuming they all err
+                 the same way, combined with the forward's own error bar. The
+                 independent version of the spread part is about eight times
+                 smaller; this one is the conservative read. The forward
+                 enters only through the (F/K0 - 1)^2 correction, but on a
+                 one-day expiry that term divides by a very small T and is
+                 worth about as much as the spreads.
+      edge_cost  what the outermost strike on each side was worth. Near zero
+                 means the integral converged inside the band. Large means it
+                 is still climbing and the band is cutting it off.
+
+    A sparse strike grid under-samples this badly: on 2026-10-15 the 30-strike
+    expiry read 1.4 points over at-the-money where its neighbours read 2.5.
+    `strikes` comes back so that is visible.
+    """
+    strikes = sorted(by_strike)
+    below = [k for k in strikes if k < F]
+    if len(strikes) < CONFIG["vs_min_strikes"] or not below:
+        return None
+    K0 = max(below)
+    rate = -math.log(disc) / T if T > 0 else 0.0
+
+    pieces = []                      # (strike, price, half-spread)
+    for k in strikes:
+        sides = by_strike[k]
+        if k == K0 and "C" in sides and "P" in sides:
+            c, p = sides["C"], sides["P"]
+            pieces.append((k, (mid(c) + mid(p)) / 2,
+                           ((_f(c["ask"]) - _f(c["bid"])) + (_f(p["ask"]) - _f(p["bid"]))) / 4))
+            continue
+        row = sides.get("P") if k <= K0 else sides.get("C")
+        if row is None:
+            continue
+        pieces.append((k, mid(row), (_f(row["ask"]) - _f(row["bid"])) / 2))
+    if len(pieces) < CONFIG["vs_min_strikes"]:
+        return None
+
+    def integrate(ps):
+        ks = [x[0] for x in ps]
+        total = spread = 0.0
+        for i, (k, px, half) in enumerate(ps):
+            dk = ((ks[i+1] - ks[i-1]) / 2 if 0 < i < len(ks) - 1
+                  else ks[1] - ks[0] if i == 0 else ks[-1] - ks[-2])
+            w = dk / (k * k) * math.exp(rate * T)
+            total += w * px
+            spread += w * half
+        var = (2 / T) * total - (1 / T) * (F / K0 - 1) ** 2
+        return var, (2 / T) * spread
+
+    var, dvar = integrate(pieces)
+    if var <= 0:
+        return None
+    # d(var)/dF of the -(1/T)(F/K0 - 1)^2 correction
+    d_fwd = (2 / T) * abs(F / K0 - 1) / K0 * fwd_error
+    dvar = math.hypot(dvar, d_fwd)
+    vol = math.sqrt(var)
+    inner, _ = integrate(pieces[1:-1]) if len(pieces) > 4 else (var, 0.0)
+    return {
+        "rate": vol,
+        "error": dvar / (2 * vol),
+        "strikes": len(pieces),
+        "edge_cost": abs(vol - math.sqrt(inner)) if inner > 0 else None,
+    }
 
 
 def _round(v, places=6):
@@ -474,13 +592,14 @@ def analyse(folder):
     and return (expiries, contracts, warnings, destination)."""
     
     options, spots, started = load(folder)
+    band = collected_band(folder)
     by_expiry = {}
     for r in options:
         by_expiry.setdefault(r["expiry"], []).append(r)
 
     warnings, expiries, contracts = [], [], []
     for expiry in sorted(by_expiry):
-        row, cs = one_expiry(expiry, by_expiry[expiry], spots, started, warnings)
+        row, cs = one_expiry(expiry, by_expiry[expiry], spots, started, warnings, band)
         if row:
             expiries.append(row)
             contracts += cs

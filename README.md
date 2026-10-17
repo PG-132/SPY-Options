@@ -25,6 +25,8 @@ Everything runs through `app.py`, from this folder:
     python app.py snap     take one chain snapshot, saved under data/chains/
     python app.py iv       solve our own IVs for the newest snapshot
     python app.py surface  fit a smile per expiry and score every point off it
+    python app.py term     strip variance between expiries: the time axis
+    python app.py history  the same surface seen from every snapshot so far
 
 With no command (VS Code's Run button), `app.py` runs `plan`.
 
@@ -40,6 +42,8 @@ bid/ask go stale, and `snap` warns you.
     screener/pricing.py   Black-Scholes in forward terms, and the IV solver
     screener/vol.py       our own IVs per snapshot: forward, bands, our Greeks
     screener/surface.py   the gates, the smile fit, and what sits off it
+    screener/term.py      forward variance between expiries, constant maturity
+    screener/history.py   the three ways of comparing one snapshot to another
     tests/                offline tests with a fake Webull:
                           python -m unittest discover tests
     docs/concepts.md      the mechanisms, and what each output column means

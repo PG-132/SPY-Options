@@ -212,10 +212,8 @@ clean forward from. Ranking by width instead of gating gave that expiry a
 the gate returns the clean reading and an error bar of 7.0 cents from that
 pair's own quote noise.
 
-The prediction that follows: $1 strikes get listed as a weekly approaches, so
-this expiry's grid should densify and its forward error should fall day over
-day. Worth checking against the next snapshots, as a test of whether the
-quality number means what it claims.
+That produced a prediction, which was tested on 2026-10-13 and came back
+split. See below.
 
 Note that on the two longest expiries the forward's error already exceeds the
 median quote band, at 1.21x and 1.17x. The forward is the largest error there,
@@ -416,6 +414,95 @@ readable gate on band width or vega. Stale quotes are wide quotes, so the band
 catches them first. The age gate is cheap insurance, not a protection that has
 yet done anything.
 
+## The time axis, and a prediction half-confirmed (2026-10-13)
+
+An expiry's ATM IV averages over every session left in its window, which on
+this chain hides a great deal. The 24-day ATM reads 12.22%; the sessions
+inside it are priced from 8.84% to 13.87%.
+
+Stripping variance between adjacent expiries, on the session clock:
+
+| Window | Sessions | Forward vol | Error |
+| --- | --- | --- | --- |
+| 10-14 to 10-15 | 1 | 9.22% | 0.06 |
+| 10-16 to 10-19 | 1 | 9.52% | 0.23 |
+| 10-19 to 10-20 | 1 | 8.76% | 0.26 |
+| 10-23 to 10-26 | 1 | 11.03% | 0.35 |
+| 10-27 to 10-30 | 3 | 13.87% | 0.18 |
+| 10-30 to 11-06 | 5 | 13.41% | 0.24 |
+
+Three regimes in one month: tomorrow priced on its own, about ten quiet
+sessions near 10%, then a step up to roughly 13.5% from 10-28. The error bars
+run 0.04 to 0.85 vol points across all three snapshots, so a one-session
+window is readable, which was not obvious beforehand - a difference of two
+totals divided by 1/252 amplifies whatever the endpoints carry.
+
+The 10-16 to 10-19 window spans three calendar days and one session, and
+prices at 9.52%, in line with its neighbours. On a calendar clock it would
+read as a dead window. First time the two-clock machinery has been
+load-bearing on live data.
+
+Constant maturity, interpolated in total variance against sessions:
+
+| Snapshot | 5 sessions | 10 sessions | 15 sessions |
+| --- | --- | --- | --- |
+| 2026-09-24 | 12.15% | 12.19% | 12.58% |
+| 2026-10-12 | 9.10% | 9.47% | 10.89% |
+| 2026-10-13 | 9.79% | 10.04% | 11.39% |
+
+Vol fell about three points over the three weeks and recovered half a point
+overnight. These are comparable day to day in a way per-expiry ATM is not,
+because no expiry ages underneath them.
+
+No window in any of the three snapshots prices negative variance: 34 windows,
+zero calendar arbitrage.
+
+**The densification prediction split.** The grid half was confirmed, sharply:
+2026-10-26 went from 26 strikes on a pure $5 grid to 101 strikes at mostly $1
+spacing in a single overnight, and 2026-10-27 entered the band the same day as
+the new sparse one, 25 strikes with every gap exactly 5.00.
+
+The error half was wrong, and backwards. 2026-10-26's forward error ROSE as it
+densified, 2.0c on one pair to 4.2c on five. That is not a regression. One
+pair cannot disagree with itself, so its error bar is the noise floor from its
+own spread, and five pairs reveal a disagreement the single reading had no way
+to show. The floor is a lower bound that can understate the real uncertainty.
+
+How much it understates is not established. There are only three single-pair
+expiries across all three snapshots - 2026-10-08, 2026-10-26 and 2026-10-27,
+all of them the ~26-strike $5-grid case - with errors of 7.0c, 2.0c and 2.5c
+against a 3.5c median for multi-pair expiries. That is far too few to call a
+pattern. Re-check as more sparse expiries pass through.
+
+## Following one trading session across snapshots (2026-10-13)
+
+A one-session window between consecutive expiries prices exactly one trading
+day, so each snapshot gives a reading for each near-term date and those can be
+compared. Monday against Tuesday:
+
+| The session | Seen 10-12 | Seen 10-13 | Change |
+| --- | --- | --- | --- |
+| 2026-10-15 | 8.73% | 9.22% | +0.48 |
+| 2026-10-16 | 9.33% | 9.97% | +0.64 |
+| 2026-10-19 | 9.42% | 9.52% | +0.10 |
+| 2026-10-20 | 8.71% | 8.76% | +0.05 |
+| 2026-10-21 | 9.49% | 10.16% | +0.66 |
+| 2026-10-22 | 9.22% | 9.87% | +0.65 |
+| 2026-10-23 | 10.06% | 10.20% | +0.14 |
+| 2026-10-26 | 11.43% | 11.03% | -0.40 |
+
+The repricing is not uniform. Four sessions were marked up about two thirds of
+a point, three barely moved, and 2026-10-26 was marked down. Error bars on
+these run 0.06 to 0.35 vol points, so the larger moves are outside them and
+the small ones are not.
+
+Nothing in an ATM column or a constant-maturity reading would show this: both
+average over the window and a day that moves while its neighbours do not
+disappears into the average.
+
+Coverage ends where daily expiries do, roughly two weeks out on SPY. Past
+that the windows span three and five sessions and cannot be pinned to a date.
+
 ## Widening the collection band (2026-10-15)
 
 The band was 6 expected moves below spot and 3 above. Those numbers were
@@ -460,3 +547,46 @@ of T.
 spread of +1.40 against about +2.5 on either side of it. It is the 30-strike
 expiry; a coarse grid under-samples the integral, the same way it weakened
 the forward. Any VS rate wants a strike-count quality number beside it.
+
+## Wiring the integral into the time axis (2026-10-16)
+
+`vol.variance_swap()` computes the fair variance strike per expiry and
+`term.py` now strips forward variance from it rather than from the
+at-the-money level. On the 2026-10-15 chain:
+
+| Expiry | DTE | ATM | VS rate | error | strikes | edge cost | VS - ATM |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-16 | 1 | 14.67% | 17.10% | 0.25 | 110 | 0.036 | +2.42 |
+| 2026-10-23 | 8 | 11.90% | 14.37% | 0.14 | 155 | 0.013 | +2.47 |
+| 2026-10-29 | 14 | 12.53% | 14.01% | 0.03 | 30 | 0.089 | +1.47 |
+| 2026-10-30 | 15 | 12.84% | 15.74% | 0.09 | 235 | 0.014 | +2.90 |
+| 2026-11-13 | 29 | 13.23% | 16.46% | 0.05 | 158 | 0.020 | +3.23 |
+
+A flat smile returns its own volatility to three decimal places, which is the
+exact answer for a lognormal and is what pins the implementation.
+
+**The sparse expiry broke the term structure before it broke the number.**
+2026-10-29 carries 30 strikes against 128-235 either side. Its at-the-money
+level is perfectly monotone against its neighbours - 12.19%, 12.53%, 12.84% -
+but its variance swap rate DIPS, 14.73% then 14.01% then 15.74%, because a
+coarse grid under-samples the integral. Stripped, that produced a negative
+window into it and a 25.99% window out of it.
+
+The fix is to drop such an expiry from the term structure rather than fall
+back to its at-the-money level, because a window differencing a variance swap
+total against an ATM total measures nothing. With 2026-10-29 removed the two
+windows become one 2-session window at 17.64%, sitting between the 19.67% and
+17.10% either side. `vs_edge_cost` is the test: 0.089 vol points there against
+0.013 to 0.036 everywhere else.
+
+**What the edge cost does not catch is a narrow band.** The three chains taken
+at 6/3 have perfectly healthy edge costs and are still understated by 0.5 to
+1.1 vol points, because many small missing contributions add up while each
+outermost strike still looks unimportant. There is no internal check for this,
+so `collected_band` travels with every expiry from run.json and `app.py
+history` warns when a comparison crosses the convergence point.
+
+That warning fires on the measured line rather than on any difference: 12
+moves is where the integral stopped moving, so 12/6 and 20/10 compare fine
+with each other and neither compares with 6/3. A warning that fired on every
+band change would fire forever and be ignored.

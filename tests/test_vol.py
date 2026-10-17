@@ -314,3 +314,99 @@ class TestForwardIVCost(unittest.TestCase):
         no-arbitrage floor. That is not a cost of zero."""
         contracts = [{"strike": 766.0, "right": "C", "mid": 0.02, "iv": 0.13}]
         self.assertIsNone(vol.forward_iv_cost(contracts, FORWARD, 500.0, T29, DISC29))
+
+
+def chain(F, T, smile, lo=400, hi=1200, step=1.0, spread=0.02):
+    """A synthetic chain in the shape quotes_by_strike returns, priced from
+    `smile(k)` where k is log-moneyness."""
+    disc = math.exp(-RATE * T)
+    out = {}
+    K = float(lo)
+    while K <= hi:
+        iv = smile(math.log(K / F))
+        sides = {}
+        for right in ("C", "P"):
+            px = pricing.bs(right, F, K, T, iv, disc)["price"]
+            if px > 0.005:
+                sides[right] = {"strike": K, "right": right,
+                                "bid": px - spread / 2, "ask": px + spread / 2}
+        if sides:
+            out[K] = sides
+        K += step
+    return out, disc
+
+
+class TestVarianceSwap(unittest.TestCase):
+    """The integral that makes total variance additive across time. For a
+    lognormal - a flat smile - the fair variance strike IS sigma, so the
+    integral has an exact answer to be checked against."""
+
+    T = 29 / 365
+
+    def test_a_flat_smile_gives_back_its_own_volatility(self):
+        F, sigma = FORWARD, 0.13
+        by_strike, disc = chain(F, self.T, lambda k: sigma)
+        got = vol.variance_swap(by_strike, F, self.T, disc)
+        self.assertAlmostEqual(got["rate"], sigma, places=3)
+
+    def test_skew_lifts_it_above_the_at_the_money_level(self):
+        """The whole reason to prefer it: the integral sees the rich put wing
+        and the at-the-money level does not."""
+        F = FORWARD
+        skewed = lambda k: max(0.05, 0.13 - 0.5 * k)   # floored: a call wing
+        skew_chain, disc = chain(F, self.T, skewed)    # left unfloored goes negative
+        flat_chain, _ = chain(F, self.T, lambda k: 0.13)
+        with_skew = vol.variance_swap(skew_chain, F, self.T, disc)["rate"]
+        without = vol.variance_swap(flat_chain, F, self.T, disc)["rate"]
+        # same at-the-money level in both; the lift is entirely the wings
+        self.assertGreater(with_skew, without + 0.004)
+        self.assertAlmostEqual(without, 0.13, places=3)
+
+    def test_cutting_the_band_understates_it(self):
+        """Measured on the real chain as 0.5 to 1.1 vol points; here the
+        direction is what is pinned."""
+        F = FORWARD
+        skewed = lambda k: max(0.05, 0.13 - 0.5 * k)
+        wide, disc = chain(F, self.T, skewed)
+        narrow, _ = chain(F, self.T, skewed, lo=700, hi=840)
+        self.assertLess(vol.variance_swap(narrow, F, self.T, disc)["rate"],
+                        vol.variance_swap(wide, F, self.T, disc)["rate"])
+
+    def test_a_sparse_grid_is_flagged_by_the_edge_cost(self):
+        """2026-10-29 read 0.089 vol points of edge cost on 30 strikes where
+        its neighbours read 0.013 to 0.036 on 128 to 235."""
+        F = FORWARD
+        # kept where options still have value: further out the price filter
+        # strips the out-of-the-money side and there is nothing to integrate
+        fine, disc = chain(F, self.T, lambda k: 0.13, lo=680, hi=860, step=1.0)
+        coarse, _ = chain(F, self.T, lambda k: 0.13, lo=680, hi=860, step=10.0)
+        self.assertGreater(vol.variance_swap(coarse, F, self.T, disc)["edge_cost"],
+                           vol.variance_swap(fine, F, self.T, disc)["edge_cost"] * 5)
+
+    def test_wider_quotes_mean_a_wider_error_bar(self):
+        F = FORWARD
+        tight, disc = chain(F, self.T, lambda k: 0.13, spread=0.02)
+        loose, _ = chain(F, self.T, lambda k: 0.13, spread=0.20)
+        self.assertGreater(vol.variance_swap(loose, F, self.T, disc)["error"],
+                           vol.variance_swap(tight, F, self.T, disc)["error"] * 5)
+
+    def test_the_forward_error_widens_it_too(self):
+        F = FORWARD
+        by_strike, disc = chain(F, self.T, lambda k: 0.13)
+        sure = vol.variance_swap(by_strike, F, self.T, disc, fwd_error=0.0)
+        unsure = vol.variance_swap(by_strike, F, self.T, disc, fwd_error=0.50)
+        self.assertGreater(unsure["error"], sure["error"])
+        self.assertAlmostEqual(unsure["rate"], sure["rate"], places=12)
+
+    def test_too_few_strikes_returns_nothing(self):
+        F = FORWARD
+        by_strike, disc = chain(F, self.T, lambda k: 0.13, lo=765, hi=772)
+        self.assertIsNone(vol.variance_swap(by_strike, F, self.T, disc))
+        self.assertIsNone(vol.variance_swap({}, F, self.T, disc))
+
+    def test_nothing_below_the_forward_returns_nothing(self):
+        """K0 is the largest strike under the forward; with none there is no
+        anchor for the correction term."""
+        F = FORWARD
+        by_strike, disc = chain(F, self.T, lambda k: 0.13, lo=900, hi=1000)
+        self.assertIsNone(vol.variance_swap(by_strike, F, self.T, disc))
