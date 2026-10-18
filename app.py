@@ -9,6 +9,8 @@ app.py - the one entry point for the SPY screener.
   python app.py surface  fit the smile per expiry and score every point
   python app.py term     strip variance between expiries: the time axis
   python app.py history  the same surface seen from every snapshot so far
+  python app.py prices   daily closes for SPY and the CBOE series, cached
+  python app.py vrp      implied against realized, one claim per month
 
 More commands arrive as the modules land (surface, screen, etc). The files in
 folder screener/ are imported from here, not run on their own.
@@ -17,7 +19,7 @@ folder screener/ are imported from here, not run on their own.
 import argparse
 import sys
 
-from screener import collect, history, surface, term, vol
+from screener import collect, history, prices, surface, term, vol, vrp
 
 
 def main():
@@ -38,6 +40,10 @@ def main():
     hi = sub.add_parser("history", help="compare every snapshot taken so far")
     hi.add_argument("limit", nargs="?",
                     help="only the most recent N snapshots; default all")
+    pr = sub.add_parser("prices", help="daily closes for SPY and the CBOE series")
+    pr.add_argument("refresh", nargs="?", help="pass `refresh` to re-download")
+    vr = sub.add_parser("vrp", help="implied against realized, monthly")
+    vr.add_argument("refresh", nargs="?", help="pass `refresh` to re-download")
 
     # VS Code's Run button starts the file with no arguments. Default to the
     # read-only command; anything that writes has to be asked for.
@@ -58,6 +64,10 @@ def main():
         term.cmd_term(a.snapshot)
     elif a.cmd == "history":
         history.cmd_history(a.limit)
+    elif a.cmd == "prices":
+        prices.cmd_prices(a.refresh)
+    elif a.cmd == "vrp":
+        vrp.cmd_vrp(a.refresh)
 
 
 if __name__ == "__main__":

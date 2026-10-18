@@ -12,19 +12,7 @@ strike items off when they are checked rather than when they feel fine.
 
 
 
-### 1. The rate is 4% flat and unverified 
-
-`vol.CONFIG["rate"]`. It has never been checked against an actual short rate.
-A 1% error moves a 30-day forward by about six cents, which is inside the
-forward's own measured error bar on the long expiries, so this matters less
-than it looks. It is still an untested input.
-(as of market close on october 2, 2026 tbill yields ~4-4.5%)
-
-
-*Fix:* read `^IRX` at snapshot time and record it alongside the quotes, so
-history re-derives under whatever rate actually applied that day.
-
-### 2. The holiday table is hand-typed, and half-days are missing 
+### 1. The holiday table is hand-typed, and half-days are missing 
 
 `vol.HOLIDAYS` was typed from memory, not imported. Worse, early closes are
 not modelled at all: the Friday after Thanksgiving and Christmas Eve trade a
@@ -36,7 +24,7 @@ comparison between expiries. Dormant until late November, then real.
 *How we would know:* a day the whole chain prices as cheap per session, with
 no event to explain it, sitting next to a known holiday.
 
-### 3. European math on American options 
+### 2. European math on American options 
 
 `pricing.bs` is European. SPY options are American. Reading only the
 out-of-the-money side avoids the worst of it, since early exercise is a
@@ -45,14 +33,14 @@ deep-in-the-money phenomenon, but the exposure is not zero.
 *How we would know:* bound it. Price a few of our actual strikes under a
 binomial tree and compare. If the gap is inside the IV band, stop worrying.
 
-### 4. Webull is not an independent check 
+### 3. Webull is not an independent check 
 
 Our IVs agreeing with theirs to 0.11 points is reassuring but not proof: a
 shared convention error would agree with itself. The genuinely independent
 checks are put-call parity, the frozen reference cases, and the fit's RMS
 against the measured bands.
 
-### 5. The fitted shape is untested outside a calm market
+### 4. The fitted shape is untested outside a calm market
 
 Every constant here was set on one chain, 2026-09-24, with ATM IV at 13%.
 Widening its spreads shows the machinery degrades honestly, but that cannot
@@ -100,6 +88,14 @@ fits; long same-sign runs mean it does not, the way the cubic was caught.
   of a residual, so each point's raw IV sensitivity overstates it threefold.
   An edge now has to clear its spread AND outlast this. On the Sep-24 chain
   that took 88 spread-clearing edges down to 34.
+
+- **The rate being 4% flat.** Checked 2026-10-18 against ^IRX, now cached
+  back to 1960. On our four snapshot dates the 13-week bill read 4.050% to
+  4.088%, so the assumption is 5 to 9 basis points low. At roughly six cents
+  of forward per 1% of rate that is about half a cent, well inside the
+  forward's own error bar of 1 to 11 cents. The item's prescribed fix was to
+  record the rate at snapshot time; caching the whole series is better, since
+  any past snapshot can be re-derived by date without a column on every row.
 
 ## Standing rules
 

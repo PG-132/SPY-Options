@@ -27,6 +27,8 @@ Everything runs through `app.py`, from this folder:
     python app.py surface  fit a smile per expiry and score every point off it
     python app.py term     strip variance between expiries: the time axis
     python app.py history  the same surface seen from every snapshot so far
+    python app.py prices   daily closes for SPY and the CBOE series, cached
+    python app.py vrp      implied against realized, one claim per month
 
 With no command (VS Code's Run button), `app.py` runs `plan`.
 
@@ -44,6 +46,8 @@ bid/ask go stale, and `snap` warns you.
     screener/surface.py   the gates, the smile fit, and what sits off it
     screener/term.py      forward variance between expiries, constant maturity
     screener/history.py   the three ways of comparing one snapshot to another
+    screener/prices.py    daily closes from Yahoo; the only file that talks to it
+    screener/vrp.py       implied against realized, monthly and non-overlapping
     tests/                offline tests with a fake Webull:
                           python -m unittest discover tests
     docs/concepts.md      the mechanisms, and what each output column means

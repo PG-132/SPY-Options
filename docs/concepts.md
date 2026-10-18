@@ -266,3 +266,76 @@ not measuring anything. One source per snapshot or none.
 not. The 2/T factor amplifies the value and its error equally, so it cancels
 out of the relative error: at one day the quote spreads are worth 0.03 vol
 points, or 0.25 with every quote assumed to err the same way.
+
+## Implied against realized, and why the rows are monthly
+
+Everything before this measures what the market charges. This is the first
+part that asks whether the charge was right.
+
+The comparison only means something over the SAME forward window. Implied is
+forward-looking, so pairing a month's implied with the PREVIOUS month's
+realized compares two different things - which is what most write-ups do,
+because trailing realized is available immediately and forward realized makes
+you wait.
+
+**One claim per month, anchored on the month's first session.** A claim every
+session would give about 250 rows a year that each share 20 of their 21
+sessions with the row before. They cannot be averaged without counting the
+same days over and over, and day-to-day wobble on SPY is mostly noise. Month
+anchors are naturally non-overlapping, so each row is an independent
+observation and only one claim is ever open.
+
+That is also the ceiling on anything predictive here. Thirty-six years of
+prices is about 430 independent observations, not 9,000.
+
+**Two implied sources, and as of 2026-10-18 they are the same quantity.**
+^VIX reaches back to 1990 and is the only implied series with real depth, but
+it is SPX and a variance swap integral rather than an at-the-money quote. Our
+own at-the-money number was never comparable with it - it runs about 0.80 of
+VIX, which is the skew VIX includes and an ATM reading does not. Now that
+`vol.variance_swap` computes the same kind of number, the two can be set
+side by side: on 2026-10-15 ours read 16.46% against VIX's 16.46%.
+
+What has not changed is depth. Ours begins at 2026-10-15 and needs a snapshot
+on a month's first session to anchor a row, so the monthly log runs on ^VIX
+for a long time yet and `iv_source` records which produced each row.
+
+**Realized** is zero-mean sqrt(mean(r^2)) on close-to-close log returns,
+annualized by sqrt(252) - the straddle workbook's convention, kept so the two
+agree. The window is open on the left and closed on the right: the anchor's
+own close is the base the first return is measured from, not a return itself.
+
+## The daily bar, and what beating it means
+
+Under each monthly claim sits a row per session, which is the straddle
+workbook's vol block generalised from one position to the market: return,
+absolute return, the daily bar, whether the day cleared it, expanding
+realized vol, and realized minus implied.
+
+**The bar is the window's implied vol divided by sqrt(252)** - the one-day
+move implied at the anchor, held fixed across the whole window exactly as the
+sheet holds entry IV fixed for a trade. It is one standard deviation, not a
+coin flip.
+
+That distinction matters and the straddle tool got it wrong. Its note said a
+fairly priced window beats the bar about half the time. It does not: for a
+normal distribution a one-standard-deviation move is exceeded **31.7%** of
+sessions, and the median session comes in at 0.67 bars. Reading 50% as fair
+would make every window look quiet.
+
+Measured across 404 completed months since 1993, SPY cleared its bar on
+**20.1%** of sessions. That is below 31.7% by about the amount the monthly
+premium predicts: realized runs 0.806 of implied, so the true move is 0.806
+bars, and a normal clears 1/0.806 standard deviations 21.5% of the time. The
+daily and monthly views are telling the same story from different angles,
+which is the useful part - one is a verdict a month late, the other is the
+same verdict forming in public.
+
+**One wrinkle to know about.** Consecutive windows can share a session or
+two, because a calendar month measured from one month's first session can
+reach past the next month's. 189 of 8,365 sessions, about 2.3%, belong to two
+windows. Each window's own path is left whole, since it has to end on the
+realized figure its monthly row reports; the overlap is removed when sessions
+are counted in aggregate. The monthly rows themselves are what the
+independence claim rests on, and they are 2.3% short of perfectly disjoint
+rather than exactly disjoint.

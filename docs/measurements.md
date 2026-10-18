@@ -590,3 +590,79 @@ That warning fires on the measured line rather than on any difference: 12
 moves is where the integral stopped moving, so 12/6 and 20/10 compare fine
 with each other and neither compares with 6/3. A warning that fired on every
 band change would fire forever and be ignored.
+
+## Porting the implied-against-realized log, and a check on the integral (2026-10-18)
+
+`vrp_log.py` from the straddle folder is now `screener/prices.py` and
+`screener/vrp.py`. The monthly anchoring and the realized convention came
+across unchanged; the pandas and numpy were dropped so only `prices.py`
+carries a third-party import, the way `collect.py` is the only file that
+talks to Webull.
+
+Running it against the full cache rather than the 2021 start the old log
+used:
+
+| | |
+| --- | --- |
+| Completed months | 405 |
+| Implied mean | 19.54% |
+| Realized mean | 15.75% |
+| Premium | +3.78 points |
+| Months realized beat implied | 64 of 405, 16% |
+
+**The integral agrees with VIX.** The first chain collected wide enough to
+carry a variance swap rate was 2026-10-15. At 29 days it reads 16.46%; ^VIX
+closed at 16.46% the same day.
+
+| 2026-11-13, 29 days out | Value | Ratio to ^VIX |
+| --- | --- | --- |
+| Our ATM IV | 13.23% | 0.804 |
+| Our variance swap rate | 16.46% | 1.000 |
+
+The 0.804 matches the ATM-to-VIX ratio measured earlier at 0.793. Two
+caveats: agreement to two decimals is luck, since our snapshot is 12:33
+intraday against a 16:00 close, SPY against SPX, 29 days against 30; and it
+is one observation. Half a point would have counted as success. But the gap
+closing from 21% to inside a rounding error on the first try is the strongest
+evidence so far that the integral computes what it claims.
+
+**The rate assumption checks out.** ^IRX is cached back to 1960. On our four
+snapshot dates the 13-week bill read 4.050% to 4.088% against the 4.000% in
+`vol.CONFIG`, so we are 5 to 9 basis points low, worth about half a cent on a
+30-day forward against a forward error bar of 1 to 11 cents. Integrity item 1
+is closed.
+
+## The daily bar (2026-10-18)
+
+`vrp.daily_path` writes one row per session under each monthly claim, to
+`data/vrp/daily.csv`: return, absolute return, the bar, beat, expanding
+realized, realized minus implied, running beat rate. 8,554 rows over 404
+windows.
+
+| | |
+| --- | --- |
+| Distinct sessions | 8,365 |
+| Beat the implied one-day bar | 1,679, or 20.1% |
+| A fair market would clear it | 31.7% |
+| Predicted from the monthly premium | 21.5% |
+| Biggest session | 2008-10-13, +14.52%, 5.8 bars |
+
+The straddle tool's note that a fairly priced window beats the bar about 50%
+of sessions is wrong. The bar is one standard deviation, cleared 31.7% of the
+time by a normal, and the median session comes in at 0.67 bars.
+
+That 20.1% against a predicted 21.5% is worth noting: the prediction comes
+from the monthly figures alone - realized runs 0.806 of implied, so the true
+move is 0.806 bars and a normal clears 1/0.806 standard deviations 21.5% of
+the time. Two independent routes to the same number.
+
+**Window overlap.** A calendar month from one month's first session can reach
+past the next month's, so 189 of 8,365 sessions belong to two windows, 2.3%.
+Each window's path is left whole because it must end on the realized figure
+its monthly row reports; aggregate counts dedupe instead.
+
+The worst case was not a rounding issue. SPY's history opens 1993-01-29, so
+that date became January's first session and anchored a window running to 28
+February which shared 18 of its 19 sessions with February's. Anchors are now
+required to fall in the first week of their month, which drops it: 405
+completed months became 404 and nothing else moved.
