@@ -66,7 +66,13 @@ from zoneinfo import ZoneInfo
 CONFIG = {
     "underlying": "SPY",
     "min_dte": 1,              # same-day expiries have no whole day left
-    "max_dte": 30,             # the 30-day limit, for now
+    # Raised from 30 on 2026-10-20. A 30-day reading is what lines up with
+    # VIX, and the chain has to BRACKET 30 days rather than reach for it: on
+    # 2026-10-20 the expiries ran out at 24 days because the next one, the
+    # Nov monthly, sat at 31. Weekly expiries are at most 7 days apart, so
+    # 30 + 7 guarantees one at or past 30. It is also exactly VIX's own
+    # window, which uses options from 23 to 37 days.
+    "max_dte": 37,
     "anchor_dte": 30,          # the expiry whose at-the-money IV sizes every band
     # How far to record, in expected moves. The two sides differ because the
     # skew does: measured on the 29-day chain on 2026-09-24, calls stopped

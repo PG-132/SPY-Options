@@ -181,9 +181,15 @@ class TestPlan(Base):
         strikes = [float(k) for k in range(600, 921)]
         self.contracts = {r["symbol"]: r for r in listing(self.exps.values(), strikes)}
 
-    def test_expiries_1_to_30_days_only(self):
+    def test_only_expiries_inside_the_dte_window_are_planned(self):
+        """Read from CONFIG: the rule is what is under test, not the window
+        it happens to be set to. 0DTE is always out - the pricer counts whole
+        days and there are none left."""
         expiries, _ = collect.build_plan(self.contracts, SPOT, TODAY, IV)
-        self.assertEqual([e["dte"] for e in expiries], [1, 7, 30])
+        want = [d for d in (0, 1, 7, 30, 31, 90)
+                if collect.CONFIG["min_dte"] <= d <= collect.CONFIG["max_dte"]]
+        self.assertEqual([e["dte"] for e in expiries], want)
+        self.assertNotIn(0, [e["dte"] for e in expiries])
 
     def test_every_strike_inside_its_band_with_both_rights(self):
         _, chosen = collect.build_plan(self.contracts, SPOT, TODAY, IV)
@@ -214,14 +220,17 @@ class TestPlan(Base):
 class TestAnchor(Base):
     def setUp(self):
         super().setUp()
-        self.exps = [TODAY + dt.timedelta(days=d) for d in (7, 28, 31, 35)]
+        self.exps = [TODAY + dt.timedelta(days=d) for d in (7, 28, 31, 35, 45)]
         self.rows = listing(self.exps, [float(k) for k in range(740, 790)])
 
     def test_uses_the_recorded_expiry_closest_to_30_days_and_the_strike_nearest_spot(self):
-        # 31 days is nearer to 30 than 28, but it isn't recorded, so 28 anchors
+        # 31 is nearer anchor_dte than 28 or 35 and sits inside max_dte, so it
+        # anchors. 45 is outside the window and never a candidate - which is
+        # the half of this that the old max_dte of 30 was testing with 31.
         a = quiet(collect.anchor_iv, FakeClient(self.rows), SPOT, TODAY)
         self.assertFalse(a["fallback"])
-        self.assertEqual((a["dte"], a["strike"]), (28, 763.0))
+        self.assertEqual((a["dte"], a["strike"]), (31, 763.0))
+        self.assertLessEqual(a["dte"], collect.CONFIG["max_dte"])
         self.assertAlmostEqual(a["iv"], 0.131)
 
     def test_falls_back_loudly_when_webull_gives_no_iv(self):
