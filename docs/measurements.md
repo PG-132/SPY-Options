@@ -741,3 +741,45 @@ seven measurements into one to rank it - and 30 to 90 days sits past what the
 collector reaches at all. The 30-day level is ranked against VIX, which is
 like for like. The windows are ranked against nothing yet; what they will be
 ranked against is our own history of them.
+
+## What averaging volatility readings does to a premium (2026-10-23)
+
+The ledger's first settled summary reported realized running 2.72 vol points
+below priced across 41 closed windows. It read as a clean confirmation of the
+premium measured everywhere else here. Almost all of it was the average.
+
+38 of those 41 windows hold a single session, and one absolute return
+annualized is a biased estimate of that session's sigma - by Jensen, the
+square root of an average is below the average of the square roots. For a
+normal it comes to sqrt(2/pi) = 0.7979 of the truth. Against a mean priced
+level of 12.59%, pricing that was exactly right would still have produced
+
+    12.59% x 0.7979 - 12.59% = -2.54 points
+
+against the -2.72 measured. The signal was -0.18 points and the estimator was
+the rest.
+
+Pooled in variance instead - squared returns summed against summed priced
+variance, which is what vrp.py already does over a month - the same 41 rows
+give a realized-to-priced ratio of 0.829, against the 0.806 SPY has run over
+its whole history. The usual premium, and no finding.
+
+The bias is a function of how many returns the window holds, and it dies
+quickly:
+
+| sessions | a realized reading averages |
+|---|---|
+| 1 | 0.7979 of the true sigma |
+| 2 | 0.8862 |
+| 5 | 0.9515 |
+| 21 | 0.9882 |
+| 252 | 0.9990 |
+
+Which is why vrp.py never tripped over this and the ledger did on its first
+run. A monthly claim carries 1.2% of the bias; a one-session window carries
+20% of it, and the ledger is mostly one-session windows.
+
+The rule this leaves: anything averaging volatilities across short windows
+has to be pooled in variance instead, and a premium measured off short
+windows is not comparable to one measured off long ones without this
+correction.
