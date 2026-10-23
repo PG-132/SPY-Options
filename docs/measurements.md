@@ -666,3 +666,78 @@ that date became January's first session and anchored a window running to 28
 February which shared 18 of its 19 sessions with February's. Anchors are now
 required to fall in the first week of their month, which drops it: 405
 completed months became 404 and nothing else moved.
+
+## Decomposing the chain into windows (2026-10-21)
+
+`term.py` prices each gap between expiries and stops. `context.py` asks the
+second question of every one of them, without being told which to look at:
+is this window expensive, and expensive against what.
+
+**Two baselines, and only one of them finds much.** On the 2026-10-20_1543
+chain, 12 windows tiling 23 sessions:
+
+| comparison | flagged beyond the error on the difference |
+|---|---|
+| against the whole rest of the chain | 8 of 12 |
+| against the line between its neighbours | 4 of 12 |
+
+The first count is mostly the term structure restating itself. The chain runs
+from 12.25% at the front to 18.51% at the back, so every early window reads
+cheap against the rest and every late one rich: eight findings carrying one
+fact about the shape. The local comparison removes a straight line by
+construction, and what survives it is this:
+
+```
+10-23 to 10-26   14.89%   +1.18p against its neighbours
+10-26 to 10-27   14.05%   -3.07p
+10-27 to 10-28   19.36%   +3.59p
+11-06 to 11-13   17.02%   -0.68p
+```
+
+One session, 28 October, is priced at 19.36% inside a chain averaging 16.82%,
+standing 3.59 points above the straight line between the sessions either side
+of it. Nothing in this repo carries an event calendar, so what is being priced
+there is not identified here - only that it is being paid for, and that no
+part of the term structure's shape accounts for it.
+
+**The line, not the mean.** Windows are not equally spaced: SPY lists daily
+expiries about two weeks out and weekly after that. Against uneven spacing the
+mean of the two neighbours still carries part of the slope, while the straight
+line between them read at the window's own midpoint removes it exactly. On
+this chain the two agree to 0.000 points everywhere the expiries are daily and
+part company once they are not, by at most 0.067 points.
+
+Small here, and not small in general. For windows of 2, 1 and 5 sessions
+carrying 12%, 15% and 21%, the midpoints fall at 1, 2.5 and 5.5 sessions: the
+line gives 15% and the mean gives 16.5%, so averaging would report a 1.5 point
+anomaly where there is only slope.
+
+**Two clocks on the same variance.** The first run of this printed the chain's
+aggregate beside VIX and showed a gap that did not exist. `term.py` builds
+total variance on calendar days and divides windows by sessions - deliberate,
+and right, because the session clock is what makes adjacent windows
+comparable - but it leaves the aggregate annualized on sessions while every
+index number is annualized on calendar time. The same total variance, 23
+sessions inside 31 days:
+
+```
+session clock     16.82%
+calendar clock    17.42%
+our 30-day rate   17.37%   interpolated to VIX's maturity
+VIX the same day  17.31%
+```
+
+0.60 points of pure convention, which is most of the distance a real
+dislocation would have to travel to be worth noticing. Both are now printed
+with their clock named, and the descent from 17.42 to 17.31 reads as three
+small explicable steps rather than one unexplained one.
+
+**What the band tier would have cost.** The original plan ranked each window
+against a historical distribution stripped from VIX9D, VIX and VIX3M. It was
+dropped before it was built. Three index series resolve three points on the
+curve, while this chain carries seven separate windows inside the first nine
+days alone, so a percentile at that resolution would have meant collapsing
+seven measurements into one to rank it - and 30 to 90 days sits past what the
+collector reaches at all. The 30-day level is ranked against VIX, which is
+like for like. The windows are ranked against nothing yet; what they will be
+ranked against is our own history of them.

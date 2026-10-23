@@ -339,3 +339,61 @@ realized figure its monthly row reports; the overlap is removed when sessions
 are counted in aggregate. The monthly rows themselves are what the
 independence claim rests on, and they are 2.3% short of perfectly disjoint
 rather than exactly disjoint.
+
+## Expensive against what
+
+A forward window's volatility carries no scale of its own. 19.36% for one
+session means nothing until it is set beside something else, and the choice
+of what to set it beside decides what you are able to find.
+
+**Against the rest of the chain.** The chain's total variance less this
+window's, over the sessions that are left. This answers the level question:
+of everything on offer between now and the last expiry, is this stretch the
+expensive part of it.
+
+Its hazard is that a term structure nearly always slopes, and against this
+baseline a slope says the same thing about every window at once - the front
+is cheap, the back is rich. Twelve rows carrying one fact. True, and close
+to empty.
+
+**Against its neighbours.** The straight line between the windows either
+side, read at this window's own midpoint. A slope passes straight through a
+line, so what is left over is the window that breaks the local pattern: a
+single session priced above the days around it, which is how a scheduled
+announcement shows up in a chain before anyone has told you it is there.
+
+Not their mean. Windows are unevenly spaced once the daily expiries run out,
+and against uneven spacing the mean of two neighbours still has slope left in
+it. The line and the mean are the same number only when the gaps either side
+happen to be equal.
+
+The obvious third option - fit a curve to the term structure, report the
+deviations from it - is left out on purpose. Whatever shape is chosen decides
+which windows look unusual, and a smooth one will absorb exactly the bump the
+exercise exists to find.
+
+**Why the error bar belongs on the difference.** A window and the rest of the
+chain are not two independent measurements. They share endpoints, and they
+share them with opposite signs: an error in the total variance at the
+window's far edge raises the window and lowers the rest by the same stroke.
+Their difference is therefore less certain than either side of it, and
+propagating the two as though they were independent would understate the bar
+and call differences real that are not.
+
+So every comparison here is differentiated through to the per-expiry totals,
+and the coefficients are summed per expiry before squaring. That last part is
+not a nicety. For the final window the rest's far end and the window's own
+far end are the same number and have to cancel; counting each appearance
+separately invents an uncertainty that is not there.
+
+**Why no window gets a percentile.** Ranking a number needs a history of the
+same number. The index series give three points on the curve - 9, 30 and 93
+days - and a single chain carries six or seven windows inside the first nine
+days alone. A percentile at the index's resolution would cost the resolution
+the time axis was built to get.
+
+The 30-day level is different: VIX is a 30-day variance swap rate and so is
+ours, so that one is like for like and gets ranked. The windows will be
+ranked eventually against our own history of them, at our own resolution,
+which is why every window of every snapshot gets logged rather than only the
+ones that looked interesting on the day.

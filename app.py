@@ -8,6 +8,7 @@ app.py - the one entry point for the SPY screener.
   python app.py iv       solve our own IVs from the newest snapshot
   python app.py surface  fit the smile per expiry and score every point
   python app.py term     strip variance between expiries: the time axis
+  python app.py context  which windows are priced differently from the rest
   python app.py history  the same surface seen from every snapshot so far
   python app.py prices   daily closes for SPY and the CBOE series, cached
   python app.py vrp      implied against realized, one claim per month
@@ -19,7 +20,7 @@ folder screener/ are imported from here, not run on their own.
 import argparse
 import sys
 
-from screener import collect, history, prices, surface, term, vol, vrp
+from screener import collect, context, history, prices, surface, term, vol, vrp
 
 
 def main():
@@ -36,6 +37,9 @@ def main():
                     help="folder name under data/iv/; default the newest")
     tm = sub.add_parser("term", help="forward variance between expiries")
     tm.add_argument("snapshot", nargs="?",
+                    help="folder name under data/surface/; default the newest")
+    cx = sub.add_parser("context", help="which windows are priced differently")
+    cx.add_argument("snapshot", nargs="?",
                     help="folder name under data/surface/; default the newest")
     hi = sub.add_parser("history", help="compare every snapshot taken so far")
     hi.add_argument("limit", nargs="?",
@@ -62,6 +66,8 @@ def main():
         surface.cmd_surface(a.snapshot)
     elif a.cmd == "term":
         term.cmd_term(a.snapshot)
+    elif a.cmd == "context":
+        context.cmd_context(a.snapshot)
     elif a.cmd == "history":
         history.cmd_history(a.limit)
     elif a.cmd == "prices":

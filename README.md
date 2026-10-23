@@ -26,6 +26,7 @@ Everything runs through `app.py`, from this folder:
     python app.py iv       solve our own IVs for the newest snapshot
     python app.py surface  fit a smile per expiry and score every point off it
     python app.py term     strip variance between expiries: the time axis
+    python app.py context  which windows are priced differently from the rest
     python app.py history  the same surface seen from every snapshot so far
     python app.py prices   daily closes for SPY and the CBOE series, cached
     python app.py vrp      implied against realized, one claim per month
@@ -45,6 +46,8 @@ bid/ask go stale, and `snap` warns you.
     screener/vol.py       our own IVs per snapshot: forward, bands, our Greeks
     screener/surface.py   the gates, the smile fit, and what sits off it
     screener/term.py      forward variance between expiries, constant maturity
+    screener/context.py   every window against the rest of the chain and
+                          against its neighbours; the level against VIX
     screener/history.py   the three ways of comparing one snapshot to another
     screener/prices.py    daily closes from Yahoo; the only file that talks to it
     screener/vrp.py       implied against realized, monthly and non-overlapping
