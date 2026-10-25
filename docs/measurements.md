@@ -783,3 +783,54 @@ The rule this leaves: anything averaging volatilities across short windows
 has to be pooled in variance instead, and a premium measured off short
 windows is not comparable to one measured off long ones without this
 correction.
+
+## The snapshot's own session (2026-10-25)
+
+`vol.sessions_between` counts trading days from the day AFTER the snapshot,
+which puts the session clock's origin at that day's close. A snapshot taken
+before the close therefore sits at a NEGATIVE session count, and the window
+running from it to the first expiry is longer than one session by whatever
+is left of today.
+
+Nothing corrected for that. The front window priced the rest of today plus
+all of the next session and was divided by a single session:
+
+| snapped at | sessions left | front window reads |
+|---|---|---|
+| 09:45 | 0.96 | 40.1% high |
+| 12:30 | 0.54 | 24.0% high |
+| 14:30 | 0.23 | 10.9% high |
+| 15:45 | 0.04 | 1.9% high |
+
+Only the first window is affected. Every other one differences two expiries
+that both contain the same partial day, so it cancels there.
+
+The size of the problem is not the bias itself but its variability. A routine
+snapping at 15:45 most days and 14:30 on two of them puts a 1.06 point
+sawtooth into the front of the chain on a 12% window, twice a week, and the
+ledger reports it as a repricing.
+
+**The fix.** `context.with_spot` gives the synthetic spot row a session count
+of minus the fraction of the session still to run, read from `started_et` in
+the snapshot's own run.json. The front window then spans `1 + fraction`
+sessions and the arithmetic is right at any snapshot time. Nothing else moves.
+
+**Measured, not just derived.** The two snapshots twelve minutes apart on
+2026-10-20 give the same chain at two clock times:
+
+```
+                   left   uncorrected   corrected
+2026-10-20_1531   0.072      12.44%       12.01%
+2026-10-20_1543   0.042      12.25%       11.99%
+```
+
+0.194 points of disagreement before, 0.020 after - and twelve minutes of
+genuine market movement sits inside that residual.
+
+Applied to the six snapshots on disk, which were taken anywhere from 11:42 to
+15:43, the pooled realized-to-priced ratio over 41 settled windows moved from
+0.829 to 0.845. The ledger rebuilds from context's output rather than
+appending, so one change corrected the whole history on the next run.
+
+Half-days remain uncorrected: a 13:00 close makes the fraction above
+overstated, and that is a separate dated gap.

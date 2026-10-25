@@ -87,6 +87,7 @@ which is why every window of every snapshot gets logged.
 import collections
 import csv
 import datetime as dt
+import json
 import math
 import pathlib
 import sys
@@ -99,9 +100,15 @@ CONFIG = {
     # variance swap rate at 30 days and so is ours, which is the only reason
     # the comparison means anything.
     "benchmark": "^VIX",
+    # Regular US equity hours in minutes past midnight ET. Half-days close
+    # at 13:00 and are not modelled yet; on one the fraction below is
+    # overstated, which is a known and dated gap.
+    "open_minute": 9 * 60 + 30,
+    "close_minute": 16 * 60,
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+CHAIN_DIR = ROOT / "data" / "chains"
 SURFACE_DIR = ROOT / "data" / "surface"
 OUT_DIR = ROOT / "data" / "context"
 
@@ -110,7 +117,8 @@ WINDOW_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions", "days",
                "rest_vol", "vs_rest", "vs_rest_error", "rest_differs",
                "neighbour_vol", "vs_neighbours", "vs_neighbours_error",
                "neighbours_differ"]
-CHAIN_COLS = ["snapshot", "date", "sessions", "days", "chain_vol",
+CHAIN_COLS = ["snapshot", "date", "session_remaining", "sessions", "days",
+              "chain_vol",
               "chain_vol_calendar", "windows",
               "rate_30d", "extrapolated_days", "band", "vix", "ours_minus_vix",
               "percentile", "percentile_n", "history_from", "history_to"]
@@ -122,29 +130,69 @@ SPOT = "spot"
 # The decomposition
 # ---------------------------------------------------------------------------
 
-def with_spot(rows):
-    """`rows` from term.load, with a zero row in front of them.
+def session_remaining(snapshot):
+    """How much of the snapshot's own trading session was still to run, as a
+    fraction, from the timestamp the collector wrote.
 
-    Everything the synthetic row claims is exact: no time has passed, so no
-    variance has accumulated and there is no uncertainty about that. Its
-    source is copied from the first real expiry so the stub window does not
+    Falls back to the folder name, which carries the time to the minute, and
+    to zero if neither can be read - zero being the assumption that costs
+    least, since it is what a snapshot taken at the close would have."""
+    stamp = None
+    path = CHAIN_DIR / snapshot / "run.json"
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as f:
+                stamp = dt.datetime.fromisoformat(json.load(f)["started_et"])
+        except (ValueError, KeyError, OSError, json.JSONDecodeError):
+            stamp = None
+    if stamp is None:
+        try:
+            stamp = dt.datetime.strptime(snapshot[:15], "%Y-%m-%d_%H%M")
+        except ValueError:
+            return 0.0
+    minutes = stamp.hour * 60 + stamp.minute + stamp.second / 60.0
+    span = CONFIG["close_minute"] - CONFIG["open_minute"]
+    return min(1.0, max(0.0, (CONFIG["close_minute"] - minutes) / span))
+
+
+def with_spot(rows, remaining=0.0):
+    """`rows` from term.load, with a synthetic row in front of them for the
+    moment the snapshot was taken.
+
+    Its variance is zero and so is the uncertainty about that: no time has
+    passed, exactly. Its SESSION COUNT is not zero, though, and that is the
+    subtle part. vol.sessions_between counts from the day after the snapshot,
+    which puts the session clock's origin at that day's close - so a snapshot
+    taken before the close sits at a NEGATIVE session count, and the window
+    from it to the first expiry is longer than one session by however much of
+    today is left.
+
+    Uncorrected, the front window prices the rest of today plus all of
+    tomorrow and is divided by a single session: it reads 11% high at 14:30
+    and 2% high at 15:45. A routine that snaps at different times on
+    different days therefore puts a sawtooth of about a point into the front
+    of every chain, and the ledger reports it as a repricing. Every other
+    window differences two expiries that both contain the same partial day,
+    so it cancels there and only the first one needs this.
+
+    `source` is copied from the first real expiry so the stub window does not
     read as mixing two of them."""
     if not rows:
         return []
     first = rows[0]
-    spot = {"expiry": SPOT, "sessions": 0.0, "days": 0.0, "T": 0.0,
+    spot = {"expiry": SPOT, "sessions": -float(remaining), "days": 0.0, "T": 0.0,
             "atm": first["atm"], "level": first["level"],
             "source": first["source"], "level_error": 0.0,
             "total_var": 0.0, "total_var_error": 0.0}
     return [spot] + list(rows)
 
 
-def decompose(rows):
-    """Windows tiling spot to the last expiry, and the rows behind them.
+def decompose(rows, remaining=0.0):
+    """Windows tiling the snapshot to the last expiry, and the rows behind.
 
     The forward arithmetic is term's, called once on the extended rows rather
     than reimplemented for the leading stub."""
-    full = with_spot(rows)
+    full = with_spot(rows, remaining)
     return term.forward_windows(full), full
 
 
@@ -219,7 +267,11 @@ def richness(windows, full):
     errors = {r["expiry"]: r["total_var_error"] for r in full}
     at = {r["expiry"]: r["sessions"] for r in full}
     last = full[-1]
-    total_sessions, total_var = last["sessions"], last["total_var"]
+    # The span, not the last expiry's own count: the snapshot sits at a
+    # negative session when taken before the close, and the windows have to
+    # tile what they actually cover or every complement is short.
+    total_sessions = last["sessions"] - full[0]["sessions"]
+    total_var = last["total_var"]
 
     def midpoint(w):
         """Where the window sits on the session axis. A forward vol belongs
@@ -310,10 +362,11 @@ def chain_level(windows, full):
     enough to read as a real gap against the index if only one were shown
     and its clock went unnamed."""
     last = full[-1]
-    years = last["sessions"] / CONFIG["sessions_per_year"]
+    span = last["sessions"] - full[0]["sessions"]
+    years = span / CONFIG["sessions_per_year"]
     if years <= 0 or last["total_var"] <= 0:
         return None
-    return {"sessions": last["sessions"], "days": last["days"],
+    return {"sessions": span, "days": last["days"],
             "vol": math.sqrt(last["total_var"] / years),
             "vol_calendar": (math.sqrt(last["total_var"] / last["T"])
                              if last["T"] > 0 else None),
@@ -329,7 +382,8 @@ def analyse(snapshot, refresh=False):
     if len(rows) < 2:
         raise SystemExit(f"{snapshot}: need at least two fitted expiries, "
                          f"found {len(rows)}")
-    windows, full = decompose(rows)
+    remaining = session_remaining(snapshot)
+    windows, full = decompose(rows, remaining)
     scored = richness(windows, full)
     chain = chain_level(windows, full)
 
@@ -344,6 +398,7 @@ def analyse(snapshot, refresh=False):
 
     summary = {
         "snapshot": snapshot, "date": when,
+        "session_remaining": round(remaining, 4),
         "sessions": chain["sessions"] if chain else None,
         "days": chain["days"] if chain else None,
         "chain_vol": chain["vol"] if chain else None,

@@ -90,6 +90,106 @@ class TestTheDecomposition(unittest.TestCase):
                                gradient * rows[0]["total_var_error"], places=12)
 
 
+class TestTheSnapshotsOwnSession(unittest.TestCase):
+    """A snapshot taken before the close sits at a negative session count.
+    vol.sessions_between starts from the day AFTER, so the clock's origin is
+    that day's close, and the window from the snapshot to the first expiry
+    is longer than one session by however much of today is left.
+
+    Left alone this reads 11% high at 14:30 and 2% high at 15:45, so a
+    routine that snaps at different times on different days puts a sawtooth
+    of about a point into the front of every chain. Measured on the two real
+    snapshots twelve minutes apart: 0.194 points of disagreement before the
+    correction, 0.020 after."""
+
+    def test_the_snapshot_sits_before_the_close_not_on_it(self):
+        full = context.with_spot(chain([(1, 0.12), (1, 0.14)]), remaining=0.25)
+        self.assertAlmostEqual(full[0]["sessions"], -0.25)
+        self.assertEqual(full[0]["total_var"], 0.0, "no time, no variance")
+
+    def test_the_front_window_is_longer_than_one_session(self):
+        cut, _ = context.decompose(chain([(1, 0.12), (1, 0.14)]), remaining=0.25)
+        self.assertAlmostEqual(cut[0]["sessions"], 1.25)
+        self.assertAlmostEqual(cut[1]["sessions"], 1.0, "only the first one")
+
+    def test_the_same_variance_over_more_sessions_reads_lower(self):
+        rows = chain([(1, 0.12), (1, 0.14)])
+        at_close = context.decompose(rows, 0.0)[0][0]["forward_vol"]
+        midday = context.decompose(rows, 0.25)[0][0]["forward_vol"]
+        self.assertAlmostEqual(midday, at_close / math.sqrt(1.25), places=12)
+
+    def test_the_windows_still_tile_what_they_cover(self):
+        """The complement arithmetic subtracts from the span, so the span has
+        to be measured from the snapshot and not from the first expiry."""
+        rows = chain([(2, 0.12), (1, 0.15), (5, 0.21)])
+        cut, full = context.decompose(rows, remaining=0.3)
+        self.assertAlmostEqual(sum(w["sessions"] for w in cut),
+                               full[-1]["sessions"] - full[0]["sessions"])
+
+    def test_a_market_priced_flat_through_the_partial_day_reads_flat(self):
+        """Built by hand rather than with chain(), which assumes the first
+        expiry holds exactly one session. Here every session carries the same
+        variance INCLUDING the 0.4 of today still to run, so the front window
+        holds 1.4 sessions of it and must come back at the same 15% as the
+        whole sessions after it. Before the correction it read 18%."""
+        v, rem = 0.15, 0.4
+        rows = []
+        for i in range(1, 4):
+            elapsed = i + rem
+            w = v * v * elapsed / YEAR
+            rows.append({"expiry": f"E{i}", "sessions": float(i),
+                         "days": elapsed * 365.0 / YEAR, "T": elapsed / YEAR,
+                         "atm": v, "level": v, "source": "vs",
+                         "level_error": 0.0, "total_var": w,
+                         "total_var_error": 0.0})
+        cut, full = context.decompose(rows, remaining=rem)
+        self.assertAlmostEqual(cut[0]["sessions"], 1.4)
+        for w in cut:
+            self.assertAlmostEqual(w["forward_vol"], v, places=12)
+        for w in context.richness(cut, full):
+            self.assertAlmostEqual(w["vs_rest"], 0.0, places=10)
+
+
+class TestReadingTheSnapshotTime(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = pathlib.Path(tmp.name)
+        old = context.CHAIN_DIR
+        context.CHAIN_DIR = self.root
+        self.addCleanup(setattr, context, "CHAIN_DIR", old)
+
+    def write(self, name, started):
+        folder = self.root / name
+        folder.mkdir(parents=True)
+        (folder / "run.json").write_text('{"started_et": "%s"}' % started,
+                                         encoding="utf-8")
+
+    def test_reads_the_collectors_own_timestamp(self):
+        self.write("2026-10-20_1543", "2026-10-20T14:30:00-04:00")
+        self.assertAlmostEqual(context.session_remaining("2026-10-20_1543"),
+                               90 / 390, places=6)
+
+    def test_falls_back_to_the_folder_name(self):
+        """A snapshot whose raw chain has been deleted still has its time in
+        the folder name, to the minute."""
+        self.assertAlmostEqual(context.session_remaining("2026-10-20_1430"),
+                               90 / 390, places=6)
+
+    def test_after_the_close_nothing_is_left(self):
+        self.write("2026-10-20_1700", "2026-10-20T17:00:00-04:00")
+        self.assertEqual(context.session_remaining("2026-10-20_1700"), 0.0)
+
+    def test_before_the_open_the_whole_session_is_left(self):
+        self.write("2026-10-20_0800", "2026-10-20T08:00:00-04:00")
+        self.assertEqual(context.session_remaining("2026-10-20_0800"), 1.0)
+
+    def test_an_unreadable_name_assumes_the_close(self):
+        """Zero is the assumption that costs least: it is what a snapshot
+        taken at the close would have had."""
+        self.assertEqual(context.session_remaining("not-a-snapshot"), 0.0)
+
+
 class TestAgainstTheRest(unittest.TestCase):
     def test_a_flat_chain_reads_flat_everywhere(self):
         rows = scored([(1, 0.15)] * 5)
