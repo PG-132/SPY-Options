@@ -60,6 +60,7 @@ rebuilding anything.
 import bisect
 import collections
 import csv
+import json
 import datetime as dt
 import math
 import pathlib
@@ -81,10 +82,12 @@ CONFIG = {
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+CHAIN_DIR = ROOT / "data" / "chains"
 CONTEXT_DIR = ROOT / "data" / "context"
 OUT_DIR = ROOT / "data" / "ledger"
 
 COLS = ["snapshot", "asof", "from_expiry", "to_expiry", "start_date", "end_date",
+        "start_price",
         "sessions", "days", "forward_vol", "forward_vol_error",
         "vs_rest", "vs_rest_error", "rest_differs",
         "vs_neighbours", "vs_neighbours_error", "neighbours_differ",
@@ -133,6 +136,23 @@ def read_snapshot(name):
     return windows, chain
 
 
+def snapshot_spot(name):
+    """The spot the collector itself saw when it started.
+
+    Only the first window needs it, and only because that window begins
+    partway through a session. Missing run.json means the raw chain was
+    cleared; the row then settles from the previous close as before, which
+    is the old behaviour rather than a failure."""
+    path = CHAIN_DIR / name / "run.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return _f(json.load(f).get("spot_at_start"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def build(names=None):
     """One row per window per snapshot, oldest first.
 
@@ -143,6 +163,7 @@ def build(names=None):
     for name in (names if names is not None else snapshots()):
         windows, chain = read_snapshot(name)
         asof = _d(chain.get("asof") or chain.get("date") or name[:10])
+        spot = snapshot_spot(name)
         for w in windows:
             end = _d(w["to_expiry"])
             if end is None:
@@ -164,6 +185,7 @@ def build(names=None):
                 "vs_neighbours_error": _f(w["vs_neighbours_error"]),
                 "neighbours_differ": w.get("neighbours_differ") == "True",
                 "chain_vol": _f(chain.get("chain_vol")),
+                "start_price": spot if w["from_expiry"] == SPOT else None,
                 "status": "open", "realized": None,
                 "realized_sessions": None, "realized_minus_priced": None,
             })
@@ -174,10 +196,29 @@ def build(names=None):
 # Settling
 # ---------------------------------------------------------------------------
 
-def realized_over(closes, start, end, dates=None):
-    """Annualized realized volatility over the closes in (start, end].
+def realized_over(closes, start, end, dates=None, start_price=None, span=None):
+    """Annualized realized volatility over a window ending at `end`'s close.
 
     `closes` must be sorted by date, which is what prices.py returns.
+
+    Two shapes, decided by whether `start_price` is given.
+
+    Without it the window is (start, end] - it begins at `start`'s close, and
+    that close is the base the first return is measured from. This is every
+    window between two expiries.
+
+    With it the window begins at a MOMENT inside `start`'s session, at that
+    price, so `start`'s own close is the first thing measured rather than the
+    base. This is the first window of a snapshot taken before the close: it
+    prices the rest of that afternoon, and settling it from the previous
+    close would drop exactly the part the snapshot could see. On 2026-09-24
+    that afternoon was worth 0.46% of spot. `spot_at_start` in run.json is
+    what the collector itself observed, so no intraday price feed is needed.
+
+    `span` is the window's length in SESSIONS and becomes the denominator in
+    place of the number of returns. The two agree for a close-to-close
+    window; they differ for that first one, where two returns can span 1.04
+    sessions and dividing by two would understate the result by a third.
 
     vrp.realized refuses a window holding one return, which is right for a
     monthly claim and wrong here: most windows are a single session, and one
@@ -193,16 +234,23 @@ def realized_over(closes, start, end, dates=None):
     `dates` lets the caller hoist the index out of the loop."""
     if dates is None:
         dates = [d for d, _ in closes]
-    first = bisect.bisect_right(dates, start)      # first close after `start`
     stop = bisect.bisect_right(dates, end)         # first close after `end`
-    if first == 0 or stop <= first:
-        return None, 0                             # nothing before, or nothing in
-    series = closes[first - 1:stop]                # the prior close, then the window
-    rets = [math.log(b / a) for (_, a), (_, b) in zip(series, series[1:])]
+    if start_price is not None:
+        first = bisect.bisect_left(dates, start)   # `start`'s own close counts
+        if stop <= first:
+            return None, 0
+        prices_in = [start_price] + [c for _, c in closes[first:stop]]
+    else:
+        first = bisect.bisect_right(dates, start)  # `start`'s close is the base
+        if first == 0 or stop <= first:
+            return None, 0
+        prices_in = [c for _, c in closes[first - 1:stop]]
+    rets = [math.log(b / a) for a, b in zip(prices_in, prices_in[1:])]
     if not rets:
         return None, 0
     ann = math.sqrt(CONFIG["sessions_per_year"])
-    return math.sqrt(sum(r * r for r in rets) / len(rets)) * ann, len(rets)
+    over = span if span and span > 0 else len(rets)
+    return math.sqrt(sum(r * r for r in rets) / over) * ann, len(rets)
 
 
 def settle(rows, closes):
@@ -218,7 +266,10 @@ def settle(rows, closes):
     for r in rows:
         if r["end_date"] > last:
             continue
-        rv, n = realized_over(closes, r["start_date"], r["end_date"], dates)
+        at = r.get("start_price")
+        rv, n = realized_over(closes, r["start_date"], r["end_date"], dates,
+                              start_price=at,
+                              span=r["sessions"] if at else None)
         if rv is None:
             continue
         r["status"] = "settled"

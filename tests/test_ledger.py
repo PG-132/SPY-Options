@@ -145,6 +145,52 @@ class TestRealizedOverAWindow(unittest.TestCase):
         self.assertIsNone(rv)
 
 
+class TestSettlingFromTheSnapshotsOwnSpot(unittest.TestCase):
+    """The first window of a snapshot begins partway through a session, so
+    it prices the rest of that afternoon. Settling it from the previous
+    close drops exactly the part the snapshot could see - 0.46% of spot on
+    2026-09-24. run.json records what the collector observed, so the base is
+    available without any intraday price feed."""
+
+    def setUp(self):
+        self.c = closes(dt.date(2026, 1, 5), 6, 0.01)   # +1% a session
+
+    def test_the_snapshots_own_session_close_is_measured_not_used_as_base(self):
+        """Two returns, not one: spot to that evening's close, then on to the
+        expiry. Without start_price the first of those is invisible."""
+        start, end = self.c[0][0], self.c[1][0]
+        base = self.c[0][1] * math.exp(-0.005)          # spot 0.5% under the close
+        _, n_plain = ledger.realized_over(self.c, start, end)
+        _, n_spot = ledger.realized_over(self.c, start, end, start_price=base)
+        self.assertEqual(n_plain, 1)
+        self.assertEqual(n_spot, 2)
+
+    def test_the_span_divides_not_the_number_of_returns(self):
+        """Two returns over 1.04 sessions. Dividing by two would understate
+        it by a third - the afternoon is a fraction of a session, not one."""
+        start, end = self.c[0][0], self.c[1][0]
+        base = self.c[0][1] * math.exp(-0.005)
+        rv, n = ledger.realized_over(self.c, start, end, start_price=base,
+                                     span=1.04)
+        want = math.sqrt((0.005 ** 2 + 0.01 ** 2) / 1.04) * math.sqrt(YEAR)
+        self.assertEqual(n, 2)
+        self.assertAlmostEqual(rv, want, places=10)
+
+    def test_without_a_spot_the_old_behaviour_is_unchanged(self):
+        start, end = self.c[1][0], self.c[4][0]
+        rv, n = ledger.realized_over(self.c, start, end)
+        self.assertEqual(n, 3)
+        self.assertAlmostEqual(rv, 0.01 * math.sqrt(YEAR), places=10)
+
+    def test_a_missing_run_json_leaves_the_row_settling_as_before(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        old = ledger.CHAIN_DIR
+        ledger.CHAIN_DIR = pathlib.Path(tmp.name)
+        self.addCleanup(setattr, ledger, "CHAIN_DIR", old)
+        self.assertIsNone(ledger.snapshot_spot("2026-10-20_1543"))
+
+
 class TestSettling(Base):
     def test_a_window_past_the_data_stays_open_and_carries_no_verdict(self):
         self.build(ONE)
