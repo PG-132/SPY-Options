@@ -97,7 +97,8 @@ OUT_DIR = ROOT / "data" / "term"
 
 FORWARD_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions", "days",
                 "source", "total_var_from", "total_var_to", "forward_var",
-                "forward_vol", "forward_vol_error", "atm_to", "level_to", "arbitrage"]
+                "forward_vol", "forward_vol_error", "atm_to", "level_to",
+                "put_skew_to", "call_skew_to", "arbitrage"]
 CONSTANT_COLS = ["sessions", "vol", "interpolated_between", "total_var"]
 
 
@@ -164,6 +165,13 @@ def load(snapshot):
             "T": T,
             "atm": atm,
             "level": level,
+            # Carried, not used. The variance swap rate integrates the whole
+            # smile into one number, so it is skew-inclusive and skew-blind:
+            # two chains with the same rate can be shaped very differently.
+            # A window whose vol falls while its skew steepens is a
+            # different event from one where both fall.
+            "put_skew": _f(e.get("put_skew_25d")),
+            "call_skew": _f(e.get("call_skew_25d")),
             "source": source,
             "level_error": level_error,
             "total_var": level * level * T,
@@ -195,6 +203,7 @@ def forward_windows(rows):
             "total_var_from": a["total_var"], "total_var_to": b["total_var"],
             "forward_var": var, "forward_vol": vol, "forward_vol_error": vol_err,
             "atm_to": b["atm"], "level_to": b["level"],
+            "put_skew_to": b.get("put_skew"), "call_skew_to": b.get("call_skew"),
             "source": b["source"] if a["source"] == b["source"] else "mixed",
             # A window holding exactly one session prices exactly one trading
             # day, and that day is the later expiry's own date: sessions are

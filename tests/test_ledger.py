@@ -33,11 +33,11 @@ CCOLS = ["snapshot", "date", "sessions", "days", "chain_vol",
          "chain_vol_calendar", "windows"]
 
 
-def window(frm, to, vol, sessions=1, vs_rest=0.0):
+def window(frm, to, vol, sessions=1, vs_rest=0.0, vs_neigh=""):
     return {"from_expiry": frm, "to_expiry": to, "sessions": sessions,
             "days": sessions, "forward_vol": vol, "forward_vol_error": 0.003,
             "vs_rest": vs_rest, "vs_rest_error": 0.002,
-            "rest_differs": abs(vs_rest) > 0.002, "vs_neighbours": "",
+            "rest_differs": abs(vs_rest) > 0.002, "vs_neighbours": vs_neigh,
             "vs_neighbours_error": "", "neighbours_differ": False,
             "session_priced": to if sessions == 1 else "", "source": "vs",
             "rest_vol": "", "neighbour_vol": ""}
@@ -285,6 +285,54 @@ class TestMovers(Base):
         moved, _, then = ledger.movers(ledger.build())
         self.assertEqual(moved, [])
         self.assertIsNone(then)
+
+
+class TestThePivot(Base):
+    def snaps(self):
+        return {
+            "2026-10-20_1100": (0.16, [
+                window(ledger.SPOT, "2026-10-21", 0.12, vs_neigh=0.001),
+                window("2026-10-21", "2026-10-23", 0.15, sessions=2, vs_neigh=0.002),
+                window("2026-10-23", "2026-10-26", 0.19, vs_neigh=0.003)]),
+            "2026-10-20_1543": (0.17, [
+                window(ledger.SPOT, "2026-10-21", 0.13, vs_neigh=0.004),
+                window("2026-10-21", "2026-10-23", 0.16, sessions=2, vs_neigh=0.005),
+                window("2026-10-23", "2026-10-26", 0.20, vs_neigh=0.006)]),
+        }
+
+    def test_the_last_snapshot_of_a_day_is_the_anchor(self):
+        """Three snapshots on a meeting day must not give that day three
+        times the weight of every other in the series."""
+        self.build(self.snaps())
+        kinds = {r["snapshot"]: r["kind"] for r in ledger.build()}
+        self.assertEqual(kinds["2026-10-20_1543"], "anchor")
+        self.assertEqual(kinds["2026-10-20_1100"], "bracket")
+
+    def test_brackets_are_left_out_of_the_grid(self):
+        self.build(self.snaps())
+        self.assertEqual(sorted(ledger.pivot(ledger.build())),
+                         ["2026-10-20_1543"])
+
+    def test_a_window_fills_every_date_it_spans(self):
+        """A two-session block prices both its days at the same rate. That
+        is what the market charged for a block containing either of them."""
+        self.build(self.snaps())
+        row = ledger.pivot(ledger.build(), value="forward_vol")["2026-10-20_1543"]
+        self.assertAlmostEqual(row[dt.date(2026, 10, 22)], 0.16)
+        self.assertAlmostEqual(row[dt.date(2026, 10, 23)], 0.16)
+        self.assertAlmostEqual(row[dt.date(2026, 10, 21)], 0.13)
+
+    def test_sessions_ahead_accumulates_across_the_chain(self):
+        """The ageing axis. Without it there is no way to separate a window
+        repricing from a window simply getting closer."""
+        self.build(self.snaps())
+        rows = [r for r in ledger.build() if r["snapshot"] == "2026-10-20_1543"]
+        self.assertEqual([r["sessions_ahead"] for r in rows], [0.0, 1.0, 3.0])
+
+    def test_a_holiday_is_not_a_date_the_grid_prices(self):
+        self.assertNotIn(dt.date(2026, 11, 26),
+                         ledger.trading_days(dt.date(2026, 11, 25),
+                                             dt.date(2026, 11, 30)))
 
 
 class TestEndToEnd(Base):

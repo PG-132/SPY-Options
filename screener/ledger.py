@@ -66,7 +66,7 @@ import math
 import pathlib
 import sys
 
-from screener import prices
+from screener import prices, vol
 
 CONFIG = {
     "sessions_per_year": 252,
@@ -79,6 +79,9 @@ CONFIG = {
     # the movers table. Below it the row is still in the file - this only
     # decides what the report shows.
     "mover_points": 0.0050,
+    # How much of the grid the report prints. The file holds all of it.
+    "pivot_rows": 8,
+    "pivot_cols": 9,
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -86,8 +89,9 @@ CHAIN_DIR = ROOT / "data" / "chains"
 CONTEXT_DIR = ROOT / "data" / "context"
 OUT_DIR = ROOT / "data" / "ledger"
 
-COLS = ["snapshot", "asof", "from_expiry", "to_expiry", "start_date", "end_date",
-        "start_price",
+COLS = ["snapshot", "asof", "kind", "spot",
+        "from_expiry", "to_expiry", "start_date", "end_date",
+        "start_price", "sessions_ahead", "put_skew_to", "call_skew_to",
         "sessions", "days", "forward_vol", "forward_vol_error",
         "vs_rest", "vs_rest_error", "rest_differs",
         "vs_neighbours", "vs_neighbours_error", "neighbours_differ",
@@ -159,11 +163,23 @@ def build(names=None):
     `start_date` is where the window begins on the calendar. For every window
     but the first that is the near expiry; for the first it is the snapshot's
     own date, because the window runs from the moment of the snapshot."""
+    names = list(names if names is not None else snapshots())
+    # The last snapshot of a date is that day's anchor and belongs to the
+    # daily series; anything earlier was taken to bracket something. Three
+    # snapshots on a meeting day should not give that day three times the
+    # weight of every other, and the distinction has to be recorded at write
+    # time because the folder names alone stop saying it once more arrive.
+    anchor_of = {}
+    for name in names:
+        anchor_of[name[:10]] = name
+
     out = []
-    for name in (names if names is not None else snapshots()):
+    for name in names:
         windows, chain = read_snapshot(name)
         asof = _d(chain.get("asof") or chain.get("date") or name[:10])
         spot = snapshot_spot(name)
+        kind = "anchor" if anchor_of.get(name[:10]) == name else "bracket"
+        ahead = 0.0                   # the windows tile, so this is cumulative
         for w in windows:
             end = _d(w["to_expiry"])
             if end is None:
@@ -171,11 +187,18 @@ def build(names=None):
             start = asof if w["from_expiry"] == SPOT else _d(w["from_expiry"])
             if start is None:
                 continue
+            sessions = _f(w["sessions"]) or 0.0
             out.append({
-                "snapshot": name, "asof": asof,
+                "snapshot": name, "asof": asof, "kind": kind, "spot": spot,
                 "from_expiry": w["from_expiry"], "to_expiry": w["to_expiry"],
                 "start_date": start, "end_date": end,
-                "sessions": _f(w["sessions"]), "days": _f(w["days"]),
+                # How far ahead the window begins. This is the ageing axis:
+                # a period reprices as it approaches, and without knowing the
+                # distance there is no way to tell that drift from news.
+                "sessions_ahead": round(ahead, 4),
+                "put_skew_to": _f(w.get("put_skew_to")),
+                "call_skew_to": _f(w.get("call_skew_to")),
+                "sessions": sessions, "days": _f(w["days"]),
                 "forward_vol": _f(w["forward_vol"]),
                 "forward_vol_error": _f(w["forward_vol_error"]),
                 "vs_rest": _f(w["vs_rest"]),
@@ -189,7 +212,49 @@ def build(names=None):
                 "status": "open", "realized": None,
                 "realized_sessions": None, "realized_minus_priced": None,
             })
+            ahead += sessions
     return out
+
+
+def trading_days(start, end):
+    """The sessions in (start, end]. Shares vol.py's holiday table rather
+    than keeping a second copy that can drift out of step with it."""
+    out, d = [], start + dt.timedelta(days=1)
+    while d <= end:
+        if d.weekday() < 5 and d not in vol.HOLIDAYS:
+            out.append(d)
+        d += dt.timedelta(days=1)
+    return out
+
+
+def pivot(rows, value="vs_neighbours", kind="anchor"):
+    """Snapshots down the side, the dates being priced across the top.
+
+    Read a row and you get one day's view of the future, which is what
+    `context` prints. Read a COLUMN and you get how one date was repriced as
+    it approached, which no single snapshot can show.
+
+    The cell is vs_neighbours, not vs_rest. vs_rest spans about 7.7 points
+    from the front of a chain to the back, so a window drifting toward the
+    front walks that whole range with nothing repricing at all - it would
+    measure position, not news. vs_neighbours removes the local slope
+    wherever the window sits, so it stays comparable as the window ages. The
+    cost is that the first and last window of each chain have no reading.
+
+    A window covering several sessions fills every date it spans, which is
+    honest: that is the rate priced for a block containing that date, and
+    the grid gets finer toward the diagonal exactly where the market lists
+    more expiries."""
+    grid = collections.defaultdict(dict)
+    for r in rows:
+        if kind and r.get("kind") != kind:
+            continue
+        v = r.get(value)
+        if v is None:
+            continue
+        for d in trading_days(r["start_date"], r["end_date"]):
+            grid[r["snapshot"]][d] = v
+    return grid
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +452,7 @@ def analyse(limit=None, refresh=False):
     rows = settle(build(names), spy_closes(refresh))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     write_csv(OUT_DIR / "windows.csv", rows, COLS)
+    write_pivot(OUT_DIR / "pivot.csv", pivot(rows))
     return rows, names
 
 
@@ -397,6 +463,20 @@ def write_csv(path, rows, cols):
         for r in rows:
             w.writerow({c: (round(r[c], 8) if isinstance(r.get(c), float)
                             else r.get(c)) for c in cols})
+
+
+def write_pivot(path, grid):
+    """One row per snapshot, one column per date priced. Sparse: a cell is
+    blank where that snapshot could not see that date, or where the window
+    covering it was at the end of its chain and has no local reading."""
+    dates = sorted({d for row in grid.values() for d in row})
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["snapshot"] + [d.isoformat() for d in dates])
+        for snap in sorted(grid):
+            row = grid[snap]
+            w.writerow([snap] + [("%.6f" % row[d]) if d in row else ""
+                                 for d in dates])
 
 
 def report(rows, names):
@@ -427,6 +507,26 @@ def report(rows, names):
             print(f"    nothing moved more than "
                   f"{CONFIG['mover_points'] * 100:.1f} points")
         print(f"    {len(moved)} windows matched; the file holds all of them")
+
+    grid = pivot(rows)
+    if grid:
+        snaps = sorted(grid)[-CONFIG["pivot_rows"]:]
+        seen = sorted({d for n in snaps for d in grid[n]})
+        newest = max(r["asof"] for r in rows)
+        ahead = [d for d in seen if d >= newest][:CONFIG["pivot_cols"]]
+        if ahead and len(snaps) > 1:
+            print()
+            print("  how each date has been priced against its neighbours, "
+                  "in vol points")
+            print("    " + " " * 16
+                  + "".join(f"{d.isoformat()[5:]:>7}" for d in ahead))
+            for n in snaps:
+                cells = "".join(
+                    (f"{grid[n][d] * 100:>7.1f}" if d in grid[n] else "      .")
+                    for d in ahead)
+                print(f"    {n:<16}{cells}")
+            print("    a dot is a date that snapshot could not see, or a window")
+            print("    at the end of its chain with no local reading")
 
     s = settled_summary(rows)
     print()

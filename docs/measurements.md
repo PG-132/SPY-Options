@@ -834,3 +834,44 @@ appending, so one change corrected the whole history on the next run.
 
 Half-days remain uncorrected: a 13:00 close makes the fraction above
 overstated, and that is a separate dated gap.
+
+## Resolution is not repricing (2026-10-25)
+
+The pivot view puts snapshots down the side and the dates they price across
+the top, so a column is one date's history. On its first run it separated
+two things that look identical in a single chain.
+
+The 28 October FOMC window, read down:
+
+| snapshot | window covering 28 Oct | vol | vs neighbours |
+|---|---|---|---|
+| 2026-10-12_1449 | 10-26 to 10-30, 4 sessions | 15.65% | +1.51p |
+| 2026-10-13_1319 | 10-26 to 10-30, 4 sessions | 15.27% | +0.60p |
+| 2026-10-15_1233 | 10-27 to 10-28, 1 session | 19.67% | +4.16p |
+| 2026-10-20_1543 | 10-27 to 10-28, 1 session | 19.36% | +3.59p |
+
+The jump from +0.60 to +4.16 between the 13th and the 15th is not the market
+changing its mind. On the 12th and 13th the meeting sat inside a four-session
+block: three quiet days near 14% averaged with one near 19.7% gives the
+15.65% shown, and the event is diluted below anything the local comparison
+could flag. By the 15th SPY had listed a 27 October expiry, the block split,
+and the day stood on its own.
+
+So the event was priced at full size the moment a daily expiry existed to
+carry it, and decayed mildly from there - 4.16 to 3.59 over five sessions.
+Nothing built gradually.
+
+**Why the cell is vs_neighbours and not vs_rest.** vs_rest spans 7.68 points
+from the front of the 2026-10-20 chain to its back, which is the term
+structure and nothing else. A window drifting toward the front walks that
+entire range with nothing repricing, so as a time series it would measure
+position. vs_neighbours removes the local slope wherever the window sits.
+The cost is that the first and last window of each chain have no reading.
+
+**What the grid still cannot separate.** A period genuinely reprices as it
+approaches, because uncertainty about it resolves - the chain walks from
+trailing realized toward the long-run average, and a fixed window walks back
+down that. That drift is not news and there is no baseline for it yet.
+`sessions_ahead` is now recorded on every row so the drift can be estimated
+once there is a year of series; until then ageing and news are confounded in
+any column read.

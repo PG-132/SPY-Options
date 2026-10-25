@@ -114,6 +114,7 @@ OUT_DIR = ROOT / "data" / "context"
 
 WINDOW_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions", "days",
                "source", "forward_vol", "forward_vol_error",
+               "put_skew_to", "call_skew_to",
                "rest_vol", "vs_rest", "vs_rest_error", "rest_differs",
                "neighbour_vol", "vs_neighbours", "vs_neighbours_error",
                "neighbours_differ"]
@@ -182,6 +183,8 @@ def with_spot(rows, remaining=0.0):
     first = rows[0]
     spot = {"expiry": SPOT, "sessions": -float(remaining), "days": 0.0, "T": 0.0,
             "atm": first["atm"], "level": first["level"],
+            "put_skew": first.get("put_skew"),
+            "call_skew": first.get("call_skew"),
             "source": first["source"], "level_error": 0.0,
             "total_var": 0.0, "total_var_error": 0.0}
     return [spot] + list(rows)
