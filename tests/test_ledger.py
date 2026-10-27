@@ -335,6 +335,54 @@ class TestThePivot(Base):
                                              dt.date(2026, 11, 30)))
 
 
+class TestMissingSessions(unittest.TestCase):
+    """A gap is the one failure that stays quiet. The record cannot tell a
+    day nobody looked at from a day nothing happened, and only one of those
+    can be recovered."""
+
+    def rows(self, dates):
+        return [{"asof": d} for d in dates]
+
+    def test_names_the_sessions_nobody_snapped(self):
+        got, want = ledger.missing_sessions(
+            self.rows([dt.date(2026, 10, 19), dt.date(2026, 10, 23)]),
+            through=dt.date(2026, 10, 23))
+        self.assertEqual(got, [dt.date(2026, 10, 20), dt.date(2026, 10, 21),
+                               dt.date(2026, 10, 22)])
+        self.assertEqual(want, 5)
+
+    def test_a_closed_market_is_not_a_missed_session(self):
+        """Thanksgiving 2026 is in the holiday table and must not be
+        reported as something you failed to do."""
+        got, _ = ledger.missing_sessions(
+            self.rows([dt.date(2026, 11, 25), dt.date(2026, 11, 27)]),
+            through=dt.date(2026, 11, 27))
+        self.assertNotIn(dt.date(2026, 11, 26), got)
+        self.assertEqual(got, [])
+
+    def test_a_weekend_is_not_a_gap_either(self):
+        got, _ = ledger.missing_sessions(
+            self.rows([dt.date(2026, 10, 23), dt.date(2026, 10, 26)]),
+            through=dt.date(2026, 10, 26))
+        self.assertEqual(got, [])
+
+    def test_an_unbroken_run_reports_nothing(self):
+        days = [dt.date(2026, 10, 19) + dt.timedelta(days=i) for i in range(5)]
+        got, want = ledger.missing_sessions(self.rows(days), through=days[-1])
+        self.assertEqual(got, [])
+        self.assertEqual(want, 5)
+
+    def test_the_range_runs_to_today_so_todays_miss_is_reported(self):
+        """The point is to notice a gap while it still means something,
+        and the most useful one to hear about is the one just made."""
+        old = dt.date.today() - dt.timedelta(days=30)
+        while old.weekday() >= 5:
+            old -= dt.timedelta(days=1)
+        got, _ = ledger.missing_sessions(self.rows([old]))
+        self.assertTrue(got, "a month of silence should be reported")
+        self.assertGreater(max(got), old)
+
+
 class TestEndToEnd(Base):
     def test_writes_the_file_and_reports(self):
         self.build(ONE)

@@ -82,6 +82,7 @@ CONFIG = {
     # How much of the grid the report prints. The file holds all of it.
     "pivot_rows": 8,
     "pivot_cols": 9,
+    "gaps_shown": 6,
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -214,6 +215,25 @@ def build(names=None):
             })
             ahead += sessions
     return out
+
+
+def missing_sessions(rows, through=None):
+    """Trading days inside the covered range that no snapshot saw.
+
+    The record cannot distinguish a quiet day from a day nobody looked, and
+    only one of those can be recovered. A gap is also the one failure that
+    stays silent: an alarm not heard, a machine asleep, a token expired, and
+    nothing in the output complains until someone wonders in December why
+    November looks thin. Counted against the holiday table, so a closed
+    market is not reported as a miss."""
+    if not rows:
+        return [], 0
+    have = {r["asof"] for r in rows}
+    start = min(have)
+    end = through or max(max(have), dt.date.today())
+    want = [d for d in trading_days(start - dt.timedelta(days=1), end)
+            if d.weekday() < 5 and d not in vol.HOLIDAYS]
+    return [d for d in want if d not in have], len(want)
 
 
 def trading_days(start, end):
@@ -484,6 +504,17 @@ def report(rows, names):
     print(f"{len(rows)} windows across {len(names)} snapshots, "
           f"{names[0]} to {names[-1]}")
     print(f"  {len(rows) - open_n} settled, {open_n} still open")
+
+    gaps, expected = missing_sessions(rows)
+    if gaps:
+        recent = ", ".join(d.isoformat() for d in gaps[-CONFIG["gaps_shown"]:])
+        more = f" (showing the last {CONFIG['gaps_shown']})" if \
+            len(gaps) > CONFIG["gaps_shown"] else ""
+        print(f"  ! {len(gaps)} of {expected} sessions in range were never "
+              f"snapped{more}")
+        print(f"    {recent}")
+        print("    a missing session is not recoverable; nothing here "
+              "interpolates one")
 
     moved, newest, then = movers(rows)
     print()
