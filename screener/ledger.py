@@ -376,7 +376,8 @@ def movers(rows, newest=None, back_days=None):
     window: its session count shrinks as the chain ages but its endpoints do
     not move. The chain's own level is carried alongside, because a window
     rising with the whole chain is a different event from one rising against
-    it."""
+    it - and so is the change in vs_neighbours, which is the only column here
+    that answers whether the period itself repriced."""
     if not rows:
         return [], None, None
     back_days = CONFIG["compare_days"] if back_days is None else back_days
@@ -412,8 +413,26 @@ def movers(rows, newest=None, back_days=None):
         # repricing lifts both and leaves this near zero.
         row["moved_vs_chain"] = (row["moved"] - row["chain_moved"]
                                  if row["chain_moved"] is not None else None)
+        # `moved` is mostly roll-down. A window keeps its expiries but loses
+        # sessions ahead, so it slides along a term structure that need not
+        # have moved at all. On the 10-20 to 10-28 pair both movers fell 4.18
+        # and 4.17 points while the slot each one arrived in was priced within
+        # 0.02 points of a week earlier: the whole decline was position.
+        # Neither `moved` nor `moved_vs_chain` defends against that - the
+        # chain's level is one number shared by every row here, so removing it
+        # shifts the column and ranks nothing differently. The change in
+        # vs_neighbours strips the local slope at both readings, so it is what
+        # repriced. None for a chain's first and last window.
+        row["repriced"] = (r["vs_neighbours"] - was["vs_neighbours"]
+                           if (r["vs_neighbours"] is not None
+                               and was["vs_neighbours"] is not None) else None)
         out.append(row)
-    out.sort(key=lambda r: -abs(r["moved"]))
+    # Ranked on what repriced. A window missing a vs_neighbours reading at
+    # either end sorts below every window that has one, on its raw move,
+    # because for those the question cannot be answered here at all.
+    out.sort(key=lambda r: (r["repriced"] is None,
+                            -abs(r["repriced"] if r["repriced"] is not None
+                                 else r["moved"])))
     return out, newest, then_name
 
 
@@ -523,20 +542,35 @@ def report(rows, names):
     else:
         gap = (rows[-1]["asof"] - next(r["asof"] for r in rows
                                        if r["snapshot"] == then)).days
-        print(f"  what moved since {then} ({gap} days)")
+        chain_moved = next((m["chain_moved"] for m in moved
+                            if m["chain_moved"] is not None), None)
+        level = (f"; chain level {chain_moved * 100:+.2f}p"
+                 if chain_moved is not None else "")
+        print(f"  what repriced since {then} ({gap} days){level}")
         print(f"    {'window':22}{'now':>9}{'was':>9}{'moved':>9}"
-              f"{'vs chain':>10}")
-        shown = [m for m in moved if abs(m["moved"]) >= CONFIG["mover_points"]]
+              f"{'repriced':>10}")
+        # Threshold on what repriced, falling back to the raw move only for
+        # the windows that have no such reading.
+        shown = [m for m in moved
+                 if abs(m["repriced"] if m["repriced"] is not None
+                        else m["moved"]) >= CONFIG["mover_points"]]
         for m in shown:
             label = (f"spot to {m['to_expiry'][5:]}" if m["from_expiry"] == SPOT
                      else f"{m['from_expiry'][5:]} to {m['to_expiry'][5:]}")
-            vs = (f"{m['moved_vs_chain'] * 100:+8.2f}p"
-                  if m["moved_vs_chain"] is not None else "        -")
+            rp = (f"{m['repriced'] * 100:+8.2f}p"
+                  if m["repriced"] is not None else "       --")
             print(f"    {label:22}{m['forward_vol'] * 100:8.2f}%"
-                  f"{m['was'] * 100:8.2f}%{m['moved'] * 100:+8.2f}p{vs:>10}")
+                  f"{m['was'] * 100:8.2f}%{m['moved'] * 100:+8.2f}p{rp:>10}")
         if not shown:
-            print(f"    nothing moved more than "
+            print(f"    nothing repriced more than "
                   f"{CONFIG['mover_points'] * 100:.1f} points")
+        else:
+            print("    moved includes roll-down - the window sliding along "
+                  "the term structure")
+            print("    as it loses sessions ahead; repriced is the change in "
+                  "vs_neighbours,")
+            print("    which strips that. -- means the window sat at a "
+                  "chain's edge and has none.")
         print(f"    {len(moved)} windows matched; the file holds all of them")
 
     grid = pivot(rows)

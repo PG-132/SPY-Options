@@ -280,6 +280,50 @@ class TestMovers(Base):
         self.assertAlmostEqual(m["moved_vs_chain"],
                                (0.1851 - 0.1700) - (0.168 - 0.150), places=10)
 
+    def rolled(self):
+        """Two windows a week apart. The first falls 4.18 points of raw vol
+        while holding its place against its neighbours to within 0.41 - the
+        10-29 to 10-30 window of 2026-10-28, which slid down the term
+        structure into a front-end slot priced the same as a week earlier.
+        The second barely moves on raw vol and repriced three full points."""
+        return {
+            "2026-10-13_1543": (0.160, [
+                window("2026-10-29", "2026-10-30", 0.1683, vs_neigh=-0.0077),
+                window("2026-11-13", "2026-11-20", 0.1700, sessions=5,
+                       vs_neigh=0.0010)]),
+            "2026-10-20_1543": (0.166, [
+                window("2026-10-29", "2026-10-30", 0.1265, vs_neigh=-0.0118),
+                window("2026-11-13", "2026-11-20", 0.1660, sessions=5,
+                       vs_neigh=0.0310)]),
+        }
+
+    def test_sliding_down_the_term_structure_is_not_repricing(self):
+        """A window keeps its expiries but loses sessions ahead, so it slides
+        along a curve that need not have moved. The raw move cannot see the
+        difference; the change in vs_neighbours can."""
+        self.build(self.rolled())
+        moved = ledger.movers(ledger.build())[0]
+        slid = next(m for m in moved if m["to_expiry"] == "2026-10-30")
+        self.assertAlmostEqual(slid["moved"], -0.0418, places=10)
+        self.assertAlmostEqual(slid["repriced"], -0.0041, places=10)
+
+    def test_the_table_ranks_on_what_repriced_not_on_what_moved(self):
+        """Otherwise pure roll-down takes the top rows and the window that
+        actually repriced is buried underneath it."""
+        self.build(self.rolled())
+        moved = ledger.movers(ledger.build())[0]
+        self.assertEqual(moved[0]["to_expiry"], "2026-11-20",
+                         "the window that repriced 3.00p must outrank the "
+                         "one that moved 4.18p without repricing")
+        self.assertGreater(abs(moved[1]["moved"]), abs(moved[0]["moved"]))
+
+    def test_a_window_at_a_chains_edge_has_no_repricing_reading(self):
+        """vs_neighbours needs a window on each side, so a chain's first and
+        last have none. Those sort below every window that does."""
+        self.build(self.snaps())
+        moved = ledger.movers(ledger.build())[0]
+        self.assertIsNone(moved[0]["repriced"])
+
     def test_one_snapshot_has_nothing_to_compare_with(self):
         self.build(ONE)
         moved, _, then = ledger.movers(ledger.build())

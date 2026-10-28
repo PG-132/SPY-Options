@@ -875,3 +875,53 @@ down that. That drift is not news and there is no baseline for it yet.
 `sessions_ahead` is now recorded on every row so the drift can be estimated
 once there is a year of series; until then ageing and news are confounded in
 any column read.
+
+## Roll-down is not repricing (2026-10-28)
+
+The first read of the mover table after the 28 October FOMC meeting reported
+that the two sessions following the statement had come off 4.2 points. They
+had not. They slid.
+
+| window | was (10-20) | now (10-28) | moved | repriced |
+|---|---|---|---|---|
+| 10-29 to 10-30 | 16.83% at 7.07 ahead | 12.65% at 1.05 ahead | -4.18p | -0.41p |
+| 10-30 to 11-02 | 17.59% at 8.07 ahead | 13.42% at 2.05 ahead | -4.17p | -0.02p |
+
+A window keeps its expiries but loses sessions ahead, so it slides along the
+term structure. Matching by position instead of by expiry settles it: the
+one-session slot was priced 12.66% on 20 October and 12.65% on the 28th, and
+the two-session slot 13.40% against 13.42%. Both within 0.02 points. The
+slope each window slid down was 4.17 and 4.19 points, against declines of
+4.18 and 4.17. The front end of the chain was unchanged in level and in
+shape, and the entire decline was position.
+
+**Why the old columns could not see it.** The table reported raw
+`forward_vol` and `moved_vs_chain`. The chain's level is one number shared by
+every row in a mover table, so subtracting it shifts the whole column and
+ranks nothing differently - and here it made the reading worse, because the
+chain rose 0.62 points over the span, so a window falling 4.18 printed -4.80
+against the chain and looked more event-specific, not less. The table now
+ranks and thresholds on the change in `vs_neighbours`, which strips the local
+slope at both readings. On this pair it reports nothing above the 0.5 point
+threshold, which is correct.
+
+**What did settle.** The meeting day itself, which no longer appears on the
+chain:
+
+| window | priced | realized |
+|---|---|---|
+| 10-27 to 10-28 | 19.38% | 2.95% |
+
+SPY closed 769.66 to 771.09, 0.186% on the day. One session's absolute return
+annualized is biased low by sqrt(2/pi), so the honest reading is 3.70%; the
+gap holds either way. The premium was a redistribution rather than an
+addition - the 27 to 29 October block priced 17.11% against 17.06% if each
+day sat on its own local line - so only a calendar spread isolated it.
+
+**A coverage limit this exposed.** Windows are matched on their pair of
+expiries, and across the eight days only 3 of the 12 windows on the newer
+chain matched: one is the spot row, whose near endpoint moves every day and
+can never match; one is the 11-02 to 11-06 block, which subdivided into four
+dailies as SPY listed them; and seven sit beyond where the older chain
+reached. The table is close to blind at weekly spacing. Daily snapshots
+recover most of it and block reconstruction recovers the subdivision case.
