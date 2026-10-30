@@ -910,13 +910,21 @@ chain:
 
 | window | priced | realized |
 |---|---|---|
-| 10-27 to 10-28 | 19.38% | 2.95% |
+| 10-27 to 10-28 | 19.38% | 5.46% |
 
-SPY closed 769.66 to 771.09, 0.186% on the day. One session's absolute return
-annualized is biased low by sqrt(2/pi), so the honest reading is 3.70%; the
-gap holds either way. The premium was a redistribution rather than an
-addition - the 27 to 29 October block priced 17.11% against 17.06% if each
+SPY closed 769.66 to 772.31, +0.344% on the day. One session's absolute
+return annualized is biased low by sqrt(2/pi), so the honest reading is
+6.84%; the gap holds either way. The premium was a redistribution rather than
+an addition - the 27 to 29 October block priced 17.11% against 17.06% if each
 day sat on its own local line - so only a calendar spread isolated it.
+
+This settlement first read 2.95%, off a close of 771.09. That was a partial
+bar: the price pull ran during the session and the provider returned the
+then-current print as the day's close, which the ledger then settled against.
+The figure corrected itself on the next pull after the bell. Any window whose
+end date is the day it is snapped has the same exposure, and the snapshots
+run at 14:30 or 15:40, so it is not rare - a bar for the current date needs
+to be marked provisional and held back from settlement until it is final.
 
 **A coverage limit this exposed.** Windows are matched on their pair of
 expiries, and across the eight days only 3 of the 12 windows on the newer
@@ -925,3 +933,92 @@ can never match; one is the 11-02 to 11-06 block, which subdivided into four
 dailies as SPY listed them; and seven sit beyond where the older chain
 reached. The table is close to blind at weekly spacing. Daily snapshots
 recover most of it and block reconstruction recovers the subdivision case.
+
+## What a 1pm close is worth (2026-10-30)
+
+The 2026-11-20 to 11-27 window counted four sessions: Mon 23, Tue 24, Wed 25,
+and Fri 27. Thanksgiving on the 26th was correctly excluded as a holiday, but
+the 27th closes at 1pm and was counted whole. The window read 16.80% and
+flagged -3.26 against its neighbours, most of a point of which was arithmetic.
+
+Setting the weight by clock time - 3.5 of 6.5 hours, so 0.538 - would be a
+guess, and the session is measured close to close, so it carries a whole
+overnight gap that the clock-time fraction ignores. It is measurable instead.
+Day-after-Thanksgiving is a 1pm close every year, which gives 33 of them in
+SPY since 1993.
+
+Squared returns cannot do it: the 2021 Omicron Friday alone reads 7.09 times
+its neighbours, and across the 33 the mean ratio is 0.838 against a median of
+0.236. So the session is split and each half measured with the estimator that
+suits it - the gap directly from the open against the previous close, the
+trading hours by Parkinson range, which is about five times as efficient as a
+squared return. Pooled over the 33, against the 20 nearest full sessions
+either side:
+
+| part | ratio to a normal session | 95% CI | share of a session |
+|---|---|---|---|
+| overnight gap | 1.10 | [0.29, 2.77] | 31.5% |
+| trading hours (Parkinson) | 0.29 | [0.19, 0.48] | 68.5% |
+| whole session | **0.54** | [0.24, 1.22] | |
+
+Two findings sit inside that. The gap arrives intact: Wednesday's close to
+Friday's open spans two nights and a holiday and carries no more variance
+than one ordinary night, so information does not accumulate while the market
+is shut. And the trading hours deliver a quarter of a normal day, not the
+0.538 the clock implies - it is not half a day of trading, it is the emptiest
+half-session of the year. Those two land on one half by coincidence of each
+other, which is why the clock-time answer is right for the wrong reason.
+
+**How well is it known?** Badly, taken as one number, and the first cut of
+this measurement did not say so. A 20,000-draw bootstrap over the 33 puts the
+whole session in [0.24, 1.22]: it rejects 0 at about 2.1 standard errors and
+does not reject 1.0, which sits 1.8 away. Almost all of that width is the
+gap, because a gap is a single price change and 33 of them buy no precision.
+The Parkinson row is the opposite - two thirds of the session, measured to
+[0.19, 0.48], nowhere near 1.
+
+So the case does not rest on the composite. It rests on one tight measurement
+and one structural fact: the trading hours are demonstrably a quarter of a
+normal day, and the session still carries a full overnight gap, because the
+market is shut longer than usual rather than less. A weight of 0 would assert
+that SPY does not move between Wednesday's close and Friday's open.
+
+**Why not round to 0, then.** Because forward vol divides by this clock and
+1/sqrt(n) is convex, so understating sessions costs more than overstating
+them by the same amount. On the 2026-11-20 to 11-27 window of the 10-30 chain,
+against the 0.5 reading of 19.35%:
+
+| weight | reads | error |
+|---|---|---|
+| 0 | 20.90% | +1.55 |
+| 0.5 | 19.35% | - |
+| 1 | 18.10% | -1.25 |
+
+And 0 is degenerate at the limit. A window spanning only a 1pm close - 11-25
+to 11-27, with Thanksgiving between them, once those dailies list - divides by
+zero and has to be dropped. Counting it whole merely reads it 29% low.
+
+**Precision.** The standard error on the composite is 0.26, so the constant is
+0.5 and nothing past it. An earlier pass of the same measurement returned
+0.505 on a slightly different control pool; the drift is a seventh of a
+standard error, which is the point.
+
+**Two clocks, deliberately.** `sessions_between` now returns a float and is
+the variance clock - what a forward window divides by. `calendar_sessions_
+between` counts dates, and is what pins a one-session window to the day it
+prices; keying that off the variance clock would have silently dropped every
+half-day window out of the pivot once its reading stopped being exactly 1.
+And `ledger.missing_sessions` keeps counting a half day as a whole one on
+purpose, because it asks a third question - was there a day you could have
+taken a snapshot - and the answer is yes.
+
+**Effect.** The window reads 17.95% over 3.505 sessions, and its flag falls
+from -3.26 to -2.14. The remaining -2.14 is whatever the market is actually
+saying about that week. Every window carries `half_days` now, and the term
+report marks the affected rows and prints the clock beside the date count.
+
+**Limitation.** Only one half-day type is measurable from closes alone.
+Christmas Eve and July 3 cannot be told apart from full days without volume,
+which the price file does not carry, so the one measured weight is applied to
+all of them. If those sessions are busier or quieter than Thanksgiving
+Friday, their windows carry that error.

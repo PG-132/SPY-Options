@@ -79,6 +79,9 @@ CONFIG = {
     "forward_pairs": 6,             # the evenest pairs the forward is read from
     "forward_max_asymmetry": 0.05,  # call spread minus put spread, past which the mid is biased
     "vs_min_strikes": 10,           # below this an integral is not worth computing at all
+    # What one 1pm close is worth on the variance clock. Measured, not chosen -
+    # see the note above HALF_DAYS for the decomposition.
+    "half_day": 0.5,
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -97,13 +100,51 @@ HOLIDAYS = [dt.date(*d) for d in (
     (2027, 6, 18), (2027, 7, 5), (2027, 9, 6), (2027, 11, 25), (2027, 12, 24),
 )]
 
+# 1pm closes. A trading day you can still snapshot, so it is NOT a holiday -
+# ledger.missing_sessions must keep counting it - but it delivers about half a
+# session of variance, so the variance clock must not count it whole.
+#
+# Measured on 33 day-after-Thanksgiving sessions, 1993-2025, SPY, pooled
+# against the 20 nearest clean sessions either side. Squared returns are
+# useless here (2021 alone reads 7.09x on the Omicron Friday), so the session
+# is split and each part measured with the estimator that suits it. With a
+# 20k bootstrap over the 33, which the first cut of this did not do:
+#
+#   overnight gap, directly          1.10  of a normal gap  [0.29, 2.77]
+#   trading hours, Parkinson range   0.29  of a normal day  [0.19, 0.48]
+#   whole session                    0.54                   [0.24, 1.22]
+#
+# Only the middle row is pinned. A gap is a single price change, so 33 of them
+# buy almost no precision, and the whole-session interval inherits that - it
+# does not exclude 1.0. What excludes 1.0 is the row that is measured well:
+# the trading hours are a quarter of a normal day and they are two thirds of
+# the session. What excludes 0 is that the gap cannot be small - the market is
+# shut longer, not less, so the floor on a 1pm close is one ordinary overnight
+# gap, and 1.10 says it is exactly that.
+#
+# Hence 0.5, and not a digit past it: the standard error is 0.26. Rounding to
+# 0 is the worse error, not the safe one. Forward vol divides by this clock,
+# so understating sessions inflates more than overstating deflates (on the
+# 2026-11-20 to 11-27 window, +1.55 points against -1.25), and a window
+# spanning only a 1pm close - 11-25 to 11-27, once those dailies list - would
+# divide by zero and have to be dropped.
+#
+# Only this half-day type is measurable from closes alone - Christmas Eve and
+# July 3 cannot be told from full days without volume - so the one weight is
+# applied to all of them and the assumption is stated here.
+HALF_DAYS = [dt.date(*d) for d in (
+    (2026, 11, 27), (2026, 12, 24),
+    (2027, 11, 26),
+)]
+
 CONTRACT_COLS = ["symbol", "expiry", "dte", "sessions", "strike", "right", "bid", "ask",
                  "mid", "spread", "spread_pct", "open_interest", "volume",
                  "quote_age_min", "iv", "iv_bid", "iv_ask", "iv_band", "delta", "gamma",
                  "theta", "vega", "vendor_iv", "iv_vs_vendor", "moves_from_forward",
                  "forward", "forward_error", "iv_fwd_hi", "iv_fwd_lo",
                  "spot_used", "quote_time_et"]
-EXPIRY_COLS = ["expiry", "dte", "days_to_expiry", "sessions", "forward", "forward_error",
+EXPIRY_COLS = ["expiry", "dte", "days_to_expiry", "sessions",
+               "sessions_calendar", "half_days", "forward", "forward_error",
                "forward_iv_cost", "forward_pairs", "forward_from_spot", "forward_gap",
                "atm_strike", "atm_iv", "atm_iv_per_session",
                "vs_rate", "vs_error", "vs_strikes", "vs_edge_cost", "vs_minus_atm", "iv_25d_put", "iv_10d_put",
@@ -176,12 +217,45 @@ def _time(v):
 
 
 def sessions_between(start, expiry):
-    """Trading days from the day after `start` through `expiry`. Weekends and
-    NYSE closures removed, which is what makes expiries comparable. (full days in time gives abnormal values)"""
+    """Variance-clock sessions from the day after `start` through `expiry`.
+    Weekends and NYSE closures removed, which is what makes expiries
+    comparable. (full days in time gives abnormal values)
+
+    A 1pm close counts CONFIG["half_day"], so this returns a float. That is
+    the clock a forward window must be divided by. It is not a count of
+    tradeable days - for that ask calendar_sessions_between, and note that
+    ledger's gap detection deliberately counts a half day as a whole one,
+    because it is a day you can take a snapshot on."""
+
+    d, n = start + dt.timedelta(days=1), 0.0
+    while d <= expiry:
+        if d.weekday() < 5 and d not in HOLIDAYS:
+            n += CONFIG["half_day"] if d in HALF_DAYS else 1.0
+        d += dt.timedelta(days=1)
+    return n
+
+
+def calendar_sessions_between(start, expiry):
+    """The same range counted in whole days, half or not. What `session_priced`
+    needs: a window spanning one 1pm close still prices exactly one date, even
+    though its variance clock reads 0.5."""
 
     d, n = start + dt.timedelta(days=1), 0
     while d <= expiry:
         if d.weekday() < 5 and d not in HOLIDAYS:
+            n += 1
+        d += dt.timedelta(days=1)
+    return n
+
+
+def half_days_between(start, expiry):
+    """How many 1pm closes the range holds. Carried onto every window so a
+    reading that looks cheap against its neighbours can be checked for being
+    an artifact of one before it is believed."""
+
+    d, n = start + dt.timedelta(days=1), 0
+    while d <= expiry:
+        if d.weekday() < 5 and d in HALF_DAYS:
             n += 1
         d += dt.timedelta(days=1)
     return n
@@ -438,6 +512,9 @@ def one_expiry(expiry, rows, spots, started, warnings, band=""):
         return None, []
 
     sessions = sessions_between(asof, exp)
+    sessions_calendar = calendar_sessions_between(asof, exp)
+    half_days = half_days_between(asof, exp)
+    # Both tables are maintained to the same horizon, so one check covers them.
     if exp > HOLIDAYS[-1]:
         warnings.append(f"{expiry}: past the holiday table, session count may be wrong")
     atm = at_strike(contracts, F)
@@ -455,6 +532,7 @@ def one_expiry(expiry, rows, spots, started, warnings, band=""):
     row = {
         "expiry": expiry, "dte": dte, "days_to_expiry": round(T * 365, 3),
         "sessions": sessions,
+        "sessions_calendar": sessions_calendar, "half_days": half_days,
         "forward": round(F, 4),
         "forward_error": round(fwd["error"], 4),
         "forward_iv_cost": _round(forward_iv_cost(contracts, F, fwd["error"], T, disc)),

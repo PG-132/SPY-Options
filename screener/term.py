@@ -95,7 +95,8 @@ IV_DIR = ROOT / "data" / "iv"
 SURFACE_DIR = ROOT / "data" / "surface"
 OUT_DIR = ROOT / "data" / "term"
 
-FORWARD_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions", "days",
+FORWARD_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions",
+                "sessions_calendar", "half_days", "days",
                 "source", "total_var_from", "total_var_to", "forward_var",
                 "forward_vol", "forward_vol_error", "atm_to", "level_to",
                 "put_skew_to", "call_skew_to", "arbitrage"]
@@ -161,6 +162,11 @@ def load(snapshot):
         out.append({
             "expiry": fit["expiry"],
             "sessions": sessions,
+            # `sessions` is the variance clock and counts a 1pm close as about
+            # half. These two come from expiries.csv and say how many whole
+            # trading days the range holds and how many close early.
+            "sessions_calendar": _f(e.get("sessions_calendar")) or sessions,
+            "half_days": _f(e.get("half_days")) or 0.0,
             "days": _f(e["days_to_expiry"]),
             "T": T,
             "atm": atm,
@@ -189,6 +195,15 @@ def forward_windows(rows):
         ds = b["sessions"] - a["sessions"]
         if ds <= 0:
             continue                      # same session count: nothing between them
+        # Whole trading days in the window, and how many of them close at 1pm.
+        # `ds` is the variance clock and is what the window divides by; `dc`
+        # counts dates and is what pins a one-session window to one of them.
+        # Absent on rows built before half days were modelled, and on any
+        # snapshot stored then: without a 1pm close the two counts agree, so
+        # falling back to the clock is exact rather than merely safe.
+        dc = round(b.get("sessions_calendar", b["sessions"])
+                   - a.get("sessions_calendar", a["sessions"]))
+        dh = round(b.get("half_days", 0.0) - a.get("half_days", 0.0))
         dw = b["total_var"] - a["total_var"]
         years = ds / CONFIG["sessions_per_year"]
         var = dw / years
@@ -200,16 +215,19 @@ def forward_windows(rows):
         out.append({
             "from_expiry": a["expiry"], "to_expiry": b["expiry"],
             "sessions": ds, "days": round(b["days"] - a["days"], 3),
+            "sessions_calendar": dc, "half_days": dh,
             "total_var_from": a["total_var"], "total_var_to": b["total_var"],
             "forward_var": var, "forward_vol": vol, "forward_vol_error": vol_err,
             "atm_to": b["atm"], "level_to": b["level"],
             "put_skew_to": b.get("put_skew"), "call_skew_to": b.get("call_skew"),
             "source": b["source"] if a["source"] == b["source"] else "mixed",
-            # A window holding exactly one session prices exactly one trading
-            # day, and that day is the later expiry's own date: sessions are
-            # counted through the expiry, so the single day in (a, b] is b.
-            # Wider windows cannot be pinned to a date and are left blank.
-            "session_priced": b["expiry"] if ds == 1 else "",
+            # A window holding exactly one trading day prices exactly that
+            # day, and it is the later expiry's own date: sessions are counted
+            # through the expiry, so the single day in (a, b] is b. Wider
+            # windows cannot be pinned to a date and are left blank. Keyed on
+            # the calendar count, not the clock - a window over one 1pm close
+            # still prices one date though its clock reads about 0.5.
+            "session_priced": b["expiry"] if dc == 1 else "",
             # Negative variance is an arbitrage only if it is negative by more
             # than the error on the difference.
             "arbitrage": var < 0 and abs(dw) > err_w,
@@ -283,8 +301,18 @@ def report(snapshot, rows, windows, curve, dest, dropped=()):
         vol = f"{w['forward_vol'] * 100:8.2f}%" if w["forward_vol"] else "negative"
         err = f"{w['forward_vol_error'] * 100:6.2f}p" if w["forward_vol_error"] else "     -"
         label = f"{w['from_expiry'][5:]} to {w['to_expiry'][5:]}"
-        print(f"  {label:24}{w['sessions']:>5.0f}{vol:>10}{err:>8}"
+        # The count of dates, not the clock: printing the clock rounded is how
+        # a 3.5-session window comes to call itself 4.
+        sess = f"{w.get('sessions_calendar', w['sessions']):.0f}" + ("*" if w.get("half_days") else "")
+        print(f"  {label:24}{sess:>5}{vol:>10}{err:>8}"
               f"{w['level_to'] * 100:15.2f}%")
+    early = [w for w in windows if w.get("half_days")]
+    for w in early:
+        n = w["half_days"]
+        held = "a 1pm close" if n == 1 else f"{n:.0f} 1pm closes"
+        print(f"    * {w['from_expiry'][5:]} to {w['to_expiry'][5:]} holds {held}; "
+              f"its variance clock reads {w['sessions']:.2f} sessions, "
+              f"not {w['sessions_calendar']:.0f}")
 
     print()
     print("  constant maturity, interpolated on the session clock")

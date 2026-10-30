@@ -23,12 +23,16 @@ from screener import term  # noqa: E402
 YEAR = term.CONFIG["sessions_per_year"]
 
 
-def expiry(sessions, atm, days=None, atm_error=0.0):
+def expiry(sessions, atm, days=None, atm_error=0.0, calendar=None, half_days=0):
     """One fitted expiry, in the shape load() produces. Days default to the
-    session count so the two clocks agree unless a test wants them apart."""
+    session count so the two clocks agree unless a test wants them apart, and
+    so does the calendar count - pass `calendar` and `half_days` to put a 1pm
+    close inside the range."""
     days = sessions if days is None else days
     T = days / 365.0
     return {"expiry": f"E{sessions:g}", "sessions": float(sessions), "days": float(days),
+            "sessions_calendar": float(sessions if calendar is None else calendar),
+            "half_days": float(half_days),
             "T": T, "atm": atm, "level": atm, "source": "atm", "atm_error": atm_error,
             "level_error": atm_error,
             "total_var": atm * atm * T, "total_var_error": 2.0 * atm * T * atm_error}
@@ -80,6 +84,44 @@ class TestForwardVariance(unittest.TestCase):
         between them, so there is no window to price."""
         a, b = expiry(5, 0.12), expiry(5, 0.12, days=7)
         self.assertEqual(term.forward_windows([a, b]), [])
+
+
+class TestEarlyCloses(unittest.TestCase):
+    def test_a_window_divides_by_the_clock_not_by_the_date_count(self):
+        """The 2026-11-20 to 11-27 shape: four dates, one of them a 1pm close,
+        so 3.5 sessions of variance. Dividing by four reads the window
+        cheap, and the difference is more than a vol point."""
+        a = expiry(10, 0.15, days=14)
+        b = expiry(13.5, 0.16, days=20, calendar=14, half_days=1)
+        w = term.forward_windows([a, b])[0]
+        self.assertAlmostEqual(w["sessions"], 3.5, places=12)
+        self.assertEqual(w["sessions_calendar"], 4)
+        self.assertEqual(w["half_days"], 1)
+
+        dw = b["total_var"] - a["total_var"]
+        honest = math.sqrt(dw / (3.5 / 252))
+        naive = math.sqrt(dw / (4.0 / 252))
+        self.assertAlmostEqual(w["forward_vol"], honest, places=12)
+        self.assertGreater((honest - naive) * 100, 1.0,
+                           "counting the 1pm close whole understates it by "
+                           "over a point, which is what made 11-20 to 11-27 "
+                           "look like a -3.26 anomaly")
+
+    def test_one_date_is_still_one_date_when_it_closes_early(self):
+        """session_priced used to key off the clock reading exactly 1. A
+        window over a single 1pm close reads 0.5 and would have lost its
+        date, taking it out of the pivot."""
+        a = expiry(0, 0.15, days=1)
+        b = expiry(0.5, 0.16, days=2, calendar=1, half_days=1)
+        w = term.forward_windows([a, b])[0]
+        self.assertEqual(w["session_priced"], b["expiry"])
+
+    def test_a_chain_with_no_early_close_is_untouched(self):
+        a, b = expiry(10, 0.15, days=14), expiry(14, 0.16, days=20)
+        w = term.forward_windows([a, b])[0]
+        self.assertEqual(w["half_days"], 0)
+        self.assertEqual(w["sessions"], w["sessions_calendar"])
+        self.assertEqual(w["session_priced"], "")
 
 
 class TestNoArbitrage(unittest.TestCase):

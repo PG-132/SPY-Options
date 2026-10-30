@@ -93,6 +93,32 @@ class TestClocks(Base):
         # Labor Day 2026 falls on Sep 7 and does not count
         self.assertEqual(vol.sessions_between(dt.date(2026, 9, 3), dt.date(2026, 9, 10)), 4)
 
+    def test_a_1pm_close_is_about_half_a_session_on_the_variance_clock(self):
+        """2026-11-20 to 11-27, the real window that exposed this: Mon 23,
+        Tue 24 and Wed 25 are whole, Thanksgiving the 26th is shut, and the
+        27th closes at 1pm. Four dates, but not four sessions of variance."""
+        a, b = dt.date(2026, 11, 20), dt.date(2026, 11, 27)
+        self.assertEqual(vol.calendar_sessions_between(a, b), 4)
+        self.assertEqual(vol.half_days_between(a, b), 1)
+        self.assertAlmostEqual(vol.sessions_between(a, b),
+                               3.0 + vol.CONFIG["half_day"], places=12)
+
+    def test_the_two_clocks_agree_wherever_nothing_closes_early(self):
+        """So falling back from one to the other is exact rather than merely
+        safe, which is what lets rows stored before this existed still read
+        correctly."""
+        a, b = dt.date(2026, 9, 24), dt.date(2026, 10, 23)
+        self.assertEqual(vol.half_days_between(a, b), 0)
+        self.assertEqual(vol.sessions_between(a, b),
+                         vol.calendar_sessions_between(a, b))
+
+    def test_a_half_day_is_still_a_day_you_can_snapshot(self):
+        """It is not a holiday. The ledger's gap detector must keep expecting
+        a snapshot on it, which is why the two counters stay separate."""
+        for d in vol.HALF_DAYS:
+            self.assertNotIn(d, vol.HOLIDAYS)
+            self.assertLess(d.weekday(), 5, "a 1pm close is a weekday")
+
     def test_time_to_expiry_counts_hours_not_whole_days(self):
         """An 11:42 snapshot is 1.18 days from tomorrow's 16:00 expiry. Calling
         it 1.0 put the Sep-25 IV 1.3 points high against Webull's."""
