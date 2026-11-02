@@ -285,13 +285,21 @@ class TestMovers(Base):
         while holding its place against its neighbours to within 0.41 - the
         10-29 to 10-30 window of 2026-10-28, which slid down the term
         structure into a front-end slot priced the same as a week earlier.
-        The second barely moves on raw vol and repriced three full points."""
+        The second barely moves on raw vol and repriced three full points.
+
+        The leading windows are what put the slide in: sessions_ahead
+        accumulates across a chain, so without them both snapshots would price
+        the 10-29 window at the front and nothing would have slid at all.
+        """
         return {
             "2026-10-13_1543": (0.160, [
+                window("spot", "2026-10-16", 0.1580, sessions=3),
+                window("2026-10-16", "2026-10-29", 0.1600, sessions=9),
                 window("2026-10-29", "2026-10-30", 0.1683, vs_neigh=-0.0077),
                 window("2026-11-13", "2026-11-20", 0.1700, sessions=5,
                        vs_neigh=0.0010)]),
             "2026-10-20_1543": (0.166, [
+                window("spot", "2026-10-29", 0.1620, sessions=7),
                 window("2026-10-29", "2026-10-30", 0.1265, vs_neigh=-0.0118),
                 window("2026-11-13", "2026-11-20", 0.1660, sessions=5,
                        vs_neigh=0.0310)]),
@@ -317,12 +325,107 @@ class TestMovers(Base):
                          "one that moved 4.18p without repricing")
         self.assertGreater(abs(moved[1]["moved"]), abs(moved[0]["moved"]))
 
+    def test_a_week_apart_the_front_has_no_comparable_slot(self):
+        """Honest limitation, and the argument for daily snapshots. A week
+        back, the only one-session window sat 12 sessions out, so there is
+        nothing at the slot this one slid into and the roll-down control
+        cannot be read. The table falls back to vs_neighbours."""
+        self.build(self.rolled())
+        moved = ledger.movers(ledger.build())[0]
+        slid = next(m for m in moved if m["to_expiry"] == "2026-10-30")
+        self.assertIsNone(slid["roll_down"])
+        self.assertIsNone(slid["net_of_roll"])
+        self.assertIsNotNone(slid["repriced"])
+
     def test_a_window_at_a_chains_edge_has_no_repricing_reading(self):
         """vs_neighbours needs a window on each side, so a chain's first and
         last have none. Those sort below every window that does."""
         self.build(self.snaps())
         moved = ledger.movers(ledger.build())[0]
         self.assertIsNone(moved[0]["repriced"])
+
+    def daily(self, front=0.18):
+        """Two snapshots one session apart, on a curve that falls with
+        distance: 20% at the front, then 18, 16, 14. Every window is one
+        session, so each slot has a comparable one a day earlier.
+
+        `front` is what 10-29 to 10-30 prices on the second day, after sliding
+        from the 16% slot into the 18% slot. At 0.18 it has done nothing but
+        roll down."""
+        return {
+            "2026-10-27_1540": (0.170, [
+                window("spot", "2026-10-28", 0.20, vs_neigh=0.0),
+                window("2026-10-28", "2026-10-29", 0.18, vs_neigh=0.0),
+                window("2026-10-29", "2026-10-30", 0.16, vs_neigh=0.0),
+                window("2026-10-30", "2026-11-02", 0.14, vs_neigh=0.0)]),
+            "2026-10-28_1540": (0.170, [
+                window("spot", "2026-10-29", 0.20, vs_neigh=0.0),
+                window("2026-10-29", "2026-10-30", front, vs_neigh=0.0),
+                window("2026-10-30", "2026-11-02", 0.14, vs_neigh=0.0)]),
+        }
+
+    def test_pure_roll_down_nets_to_zero(self):
+        """The window rose 2 points of raw vol and repriced nothing: it moved
+        from the 16% slot to the 18% slot on a curve that did not move."""
+        self.build(self.daily())
+        slid = next(m for m in ledger.movers(ledger.build())[0]
+                    if m["to_expiry"] == "2026-10-30")
+        self.assertAlmostEqual(slid["moved"], 0.02, places=10)
+        self.assertAlmostEqual(slid["roll_down"], 0.02, places=10)
+        self.assertAlmostEqual(slid["net_of_roll"], 0.0, places=10)
+
+    def test_repricing_on_top_of_roll_down_is_what_is_left(self):
+        """Same slide, but it arrives at 21% instead of 18%. Roll-down is
+        unchanged - it is read off the older curve - so the extra 3 points
+        are the news."""
+        self.build(self.daily(front=0.21))
+        slid = next(m for m in ledger.movers(ledger.build())[0]
+                    if m["to_expiry"] == "2026-10-30")
+        self.assertAlmostEqual(slid["moved"], 0.05, places=10)
+        self.assertAlmostEqual(slid["roll_down"], 0.02, places=10)
+        self.assertAlmostEqual(slid["net_of_roll"], 0.03, places=10)
+
+    def test_the_control_is_read_only_from_the_older_curve(self):
+        """Today's level must not leak into it: whatever the window arrives
+        at, the roll-down it is charged is the same."""
+        rd = []
+        for front in (0.18, 0.21, 0.09):
+            self.build(self.daily(front=front))
+            rd.append(next(m for m in ledger.movers(ledger.build())[0]
+                           if m["to_expiry"] == "2026-10-30")["roll_down"])
+        self.assertEqual(len(set(round(x, 12) for x in rd)), 1)
+
+    def test_a_window_is_never_its_own_control(self):
+        """One session apart, a window slides about one slot, so the nearest
+        comparable window to where it landed is itself - and that reports a
+        roll-down of exactly zero. Whenever the only thing at the slot is the
+        window itself, the answer is that there is no answer."""
+        curve = [{"from_expiry": "2026-11-13", "to_expiry": "2026-11-20",
+                  "sessions_ahead": 9.0, "sessions": 5.0, "forward_vol": 0.18}]
+        self.assertIsNone(ledger.slot_at(curve, 8.0, 5.0,
+                                         exclude=("2026-11-13", "2026-11-20")))
+        self.assertIsNotNone(ledger.slot_at(curve, 8.0, 5.0))
+
+    def test_a_unique_span_has_no_control_and_says_so(self):
+        """The 5-session block is the only window of its length on either
+        chain, so it gets no roll-down reading rather than a zero."""
+        self.build(self.daily())
+        blocks = {w["to_expiry"]: w for w in ledger.movers(ledger.build())[0]}
+        self.assertIsNotNone(blocks["2026-10-30"]["roll_down"])
+
+    def test_a_slot_needs_a_comparable_span_not_just_a_distance(self):
+        """A five-session window two sessions out is not the slot a
+        one-session window two sessions out occupies."""
+        curve = [{"from_expiry": "2026-11-13", "to_expiry": "2026-11-20",
+                  "sessions_ahead": 2.0, "sessions": 5.0, "forward_vol": 0.19}]
+        self.assertIsNone(ledger.slot_at(curve, 2.0, 1.0))
+        self.assertIsNotNone(ledger.slot_at(curve, 2.0, 5.0))
+
+    def test_a_slot_too_far_away_is_not_a_slot(self):
+        curve = [{"from_expiry": "2026-11-19", "to_expiry": "2026-11-20",
+                  "sessions_ahead": 9.0, "sessions": 1.0, "forward_vol": 0.19}]
+        self.assertIsNone(ledger.slot_at(curve, 1.0, 1.0))
+        self.assertIsNotNone(ledger.slot_at(curve, 9.0, 1.0))
 
     def test_one_snapshot_has_nothing_to_compare_with(self):
         self.build(ONE)

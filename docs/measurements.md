@@ -1066,3 +1066,51 @@ Fixed in three parts: the offset comes from zoneinfo, the close time is per
 date (13:00 on the 1pm closes, which is why the half-day table is shared with
 the variance clock rather than copied), and a bar whose session has not
 finished is refused at the write rather than skipped at the fetch.
+
+## Roll-down, measured instead of inferred (2026-11-01)
+
+`repriced` strips roll-down by differencing `vs_neighbours`, which reads local
+slope inside a single chain. The slot control reads it across two: a window
+slid from one distance to another, and what that slide was worth is the OLDER
+curve's own price at the slot the window landed in. Read entirely from the
+older snapshot, so none of today's news leaks into the control.
+
+The expiry pair and the slot are not two answers to one question. The pair
+says which period is priced and is the only thing that can reprice; the slot
+says how far ahead it sat, which is what the price drifts along as the period
+approaches. Signal and control.
+
+**Two traps, both found by running it.**
+
+A window must not be its own control. One session apart a window slides about
+one slot, so the nearest comparable window to where it landed is usually
+itself - and that reports a roll-down of exactly zero, which reads as "the
+slide cost nothing" when the truth is the old chain never priced that slot at
+that span. Five of nine windows read +0.00p before this was excluded.
+
+A slot is a position AND a length. A one-session window five sessions out is
+not the slot a five-session window five sessions out occupies, so matching on
+distance alone reads the term structure's own shape as a change.
+
+**Match rates, 2026-10-30 against earlier snapshots:**
+
+| gap | windows matched on expiries | of those, matched to a slot |
+|---|---|---|
+| 1 day | 9 | 4 |
+| 2 days | 9 | 4 |
+| 10 days | 1 | 0 |
+
+Daily snapshots fix the expiry match rate, 1 to 9, which is the coverage
+problem recorded above. They do NOT move the slot rate: 4 of 9 is set by the
+chain's structure, not by the gap. Four windows are one session long and can
+control each other; the other five are the only window of their length on the
+chain and have nothing to compare against. Lifting that ceiling needs block
+reconstruction, not more snapshots.
+
+**The control is only as good as the older curve's resolution.** On the 10-29
+chain, 2026-11-05 carried 30 strikes against 107 to 138 on its neighbours. A
+truncated variance-swap integral is biased down, so a slot read off a stub
+expiry charges too little roll-down and leaves too much in `net`. The two
+largest readings on the 10-30 table, -3.81p and -5.64p of roll-down, both sit
+next to that expiry. Windows touching a low-resolution expiry need flagging
+before `net` is trusted at the point of a decision.

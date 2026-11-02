@@ -98,6 +98,8 @@ COLS = ["snapshot", "asof", "kind", "spot",
         "vs_neighbours", "vs_neighbours_error", "neighbours_differ",
         "chain_vol", "status", "realized", "realized_sessions",
         "realized_minus_priced"]
+MOVER_EXTRA = ["was", "moved", "chain_moved", "moved_vs_chain", "repriced",
+               "roll_down", "net_of_roll"]
 
 SPOT = "spot"
 
@@ -369,6 +371,34 @@ def settle(rows, closes):
 # What moved
 # ---------------------------------------------------------------------------
 
+def slot_at(curve, ahead, span, exclude=None, max_gap=1.5):
+    """The window on `curve` sitting `ahead` sessions out with a span near
+    `span`, or None if nothing comparable sits there.
+
+    A slot is a position AND a length. A one-session window five sessions out
+    is not the same slot as a five-session window five sessions out, so
+    matching on distance alone would read the term structure's own shape as a
+    change. The span tolerance is relative because a half-session error means
+    something very different on a 1-session window than on a 20-session one.
+
+    `exclude` is the (from, to) pair of the window being controlled, and it
+    has to be excluded or the answer is circular. One session apart a window
+    slides about one slot, which is inside max_gap, so the nearest comparable
+    window to where it landed is usually itself - and a window compared with
+    itself reports a roll-down of exactly zero, which reads as "this slide
+    cost nothing" when the truth is that the old chain never priced that slot
+    at this span and the question has no answer here."""
+    tol = max(0.6, 0.25 * span)
+    near = [r for r in curve
+            if r.get("forward_vol") and r.get("sessions")
+            and abs(r["sessions"] - span) <= tol
+            and (r["from_expiry"], r["to_expiry"]) != exclude]
+    if not near:
+        return None
+    best = min(near, key=lambda r: abs(r["sessions_ahead"] - ahead))
+    return best if abs(best["sessions_ahead"] - ahead) <= max_gap else None
+
+
 def movers(rows, newest=None, back_days=None):
     """The newest snapshot's windows against the same windows a week ago.
 
@@ -376,8 +406,13 @@ def movers(rows, newest=None, back_days=None):
     window: its session count shrinks as the chain ages but its endpoints do
     not move. The chain's own level is carried alongside, because a window
     rising with the whole chain is a different event from one rising against
-    it - and so is the change in vs_neighbours, which is the only column here
-    that answers whether the period itself repriced."""
+    it - and so is the change in vs_neighbours.
+
+    The expiry pair and the slot are not two ways of asking one question.
+    The pair says WHICH period is being priced and is the only thing that can
+    reprice; the slot says how far ahead it sat, which is what the pricing
+    drifts along as the period approaches. So the pair carries the signal and
+    the slot is its control, and the two are read together."""
     if not rows:
         return [], None, None
     back_days = CONFIG["compare_days"] if back_days is None else back_days
@@ -396,8 +431,8 @@ def movers(rows, newest=None, back_days=None):
     if not older:
         return [], newest, None
     then_name = older[0][0]
-    then = {(r["from_expiry"], r["to_expiry"]): r
-            for r in rows if r["snapshot"] == then_name}
+    then_rows = [r for r in rows if r["snapshot"] == then_name]
+    then = {(r["from_expiry"], r["to_expiry"]): r for r in then_rows}
 
     out = []
     for r in now:
@@ -426,13 +461,30 @@ def movers(rows, newest=None, back_days=None):
         row["repriced"] = (r["vs_neighbours"] - was["vs_neighbours"]
                            if (r["vs_neighbours"] is not None
                                and was["vs_neighbours"] is not None) else None)
+        # Roll-down, measured rather than inferred. The window has slid from
+        # was["sessions_ahead"] to r["sessions_ahead"], and what that slide is
+        # worth is the older curve's own slope between those two slots - read
+        # entirely from the older snapshot, so none of today's news leaks into
+        # the control. `repriced` estimates the same quantity from local slope
+        # inside one chain; this reads it across two, and where both exist they
+        # are independent checks on each other.
+        into = slot_at(then_rows, r["sessions_ahead"], r["sessions"],
+                       exclude=(r["from_expiry"], r["to_expiry"]))
+        row["roll_down"] = (into["forward_vol"] - was["forward_vol"]
+                            if into else None)
+        row["net_of_roll"] = (row["moved"] - row["roll_down"]
+                              if row["roll_down"] is not None else None)
         out.append(row)
-    # Ranked on what repriced. A window missing a vs_neighbours reading at
-    # either end sorts below every window that has one, on its raw move,
-    # because for those the question cannot be answered here at all.
-    out.sort(key=lambda r: (r["repriced"] is None,
-                            -abs(r["repriced"] if r["repriced"] is not None
-                                 else r["moved"])))
+    # Ranked on what is left once roll-down is removed, preferring the measured
+    # control to the inferred one, and falling back to the raw move only for
+    # windows where neither can be computed - for those the question cannot be
+    # answered here at all, so they sort last rather than looking quiet.
+    def rank(r):
+        for k in ("net_of_roll", "repriced"):
+            if r[k] is not None:
+                return (0, -abs(r[k]))
+        return (1, -abs(r["moved"]))
+    out.sort(key=rank)
     return out, newest, then_name
 
 
@@ -547,31 +599,53 @@ def report(rows, names):
         level = (f"; chain level {chain_moved * 100:+.2f}p"
                  if chain_moved is not None else "")
         print(f"  what repriced since {then} ({gap} days){level}")
-        print(f"    {'window':22}{'now':>9}{'was':>9}{'moved':>9}"
-              f"{'repriced':>10}")
-        # Threshold on what repriced, falling back to the raw move only for
-        # the windows that have no such reading.
-        shown = [m for m in moved
-                 if abs(m["repriced"] if m["repriced"] is not None
-                        else m["moved"]) >= CONFIG["mover_points"]]
+        print(f"    {'window':20}{'now':>8}{'was':>8}{'moved':>8}"
+              f"{'rolled':>8}{'net':>9}")
+
+        def edge(m):
+            """What is left after roll-down, by whichever control exists."""
+            for k in ("net_of_roll", "repriced"):
+                if m[k] is not None:
+                    return m[k]
+            return m["moved"]
+
+        shown = [m for m in moved if abs(edge(m)) >= CONFIG["mover_points"]]
         for m in shown:
             label = (f"spot to {m['to_expiry'][5:]}" if m["from_expiry"] == SPOT
                      else f"{m['from_expiry'][5:]} to {m['to_expiry'][5:]}")
-            rp = (f"{m['repriced'] * 100:+8.2f}p"
-                  if m["repriced"] is not None else "       --")
-            print(f"    {label:22}{m['forward_vol'] * 100:8.2f}%"
-                  f"{m['was'] * 100:8.2f}%{m['moved'] * 100:+8.2f}p{rp:>10}")
+            rd = (f"{m['roll_down'] * 100:+7.2f}p"
+                  if m["roll_down"] is not None else "      --")
+            nt = (f"{m['net_of_roll'] * 100:+8.2f}p"
+                  if m["net_of_roll"] is not None else "        --")
+            print(f"    {label:20}{m['forward_vol'] * 100:7.2f}%"
+                  f"{m['was'] * 100:7.2f}%{m['moved'] * 100:+7.2f}p"
+                  f"{rd:>8}{nt:>9}")
         if not shown:
             print(f"    nothing repriced more than "
                   f"{CONFIG['mover_points'] * 100:.1f} points")
         else:
-            print("    moved includes roll-down - the window sliding along "
-                  "the term structure")
-            print("    as it loses sessions ahead; repriced is the change in "
-                  "vs_neighbours,")
-            print("    which strips that. -- means the window sat at a "
-                  "chain's edge and has none.")
-        print(f"    {len(moved)} windows matched; the file holds all of them")
+            print("    moved is the raw change and is mostly roll-down: the "
+                  "window slides along")
+            print("    the term structure as it loses sessions ahead. rolled "
+                  "is what that slide")
+            print("    was worth, read off the older curve at the slot the "
+                  "window moved into,")
+            print("    so net is what actually repriced. -- means no "
+                  "comparable slot existed.")
+
+        # Two independent estimates of the same quantity: the slot read across
+        # snapshots, and vs_neighbours read inside each one. Where they
+        # disagree, one of the two chains is locally misshapen.
+        both = [m for m in moved if m["net_of_roll"] is not None
+                and m["repriced"] is not None]
+        if both:
+            gaps = [abs(m["net_of_roll"] - m["repriced"]) for m in both]
+            print(f"    slot and vs_neighbours agree to "
+                  f"{sum(gaps) / len(gaps) * 100:.2f}p on average over "
+                  f"{len(both)} of {len(moved)} windows")
+        rolled = sum(1 for m in moved if m["roll_down"] is not None)
+        print(f"    {len(moved)} windows matched on expiries, {rolled} of them "
+              f"to a slot; the file holds all")
 
     grid = pivot(rows)
     if grid:
