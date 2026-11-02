@@ -923,8 +923,7 @@ bar: the price pull ran during the session and the provider returned the
 then-current print as the day's close, which the ledger then settled against.
 The figure corrected itself on the next pull after the bell. Any window whose
 end date is the day it is snapped has the same exposure, and the snapshots
-run at 14:30 or 15:40, so it is not rare - a bar for the current date needs
-to be marked provisional and held back from settlement until it is final.
+run at 14:30 or 15:40, so it is not rare. Measured and fixed below.
 
 **A coverage limit this exposed.** Windows are matched on their pair of
 expiries, and across the eight days only 3 of the 12 windows on the newer
@@ -1022,3 +1021,48 @@ Christmas Eve and July 3 cannot be told apart from full days without volume,
 which the price file does not carry, so the one measured weight is applied to
 all of them. If those sessions are busier or quieter than Thanksgiving
 Friday, their windows carry that error.
+
+## What a partial bar costs, and the clock that let it through (2026-11-01)
+
+The 28 October settlement above was wrong because the cache held a bar for a
+session that had not finished. Two more instances turned up the same day, so
+the size is worth recording. A 10:23 pull on 2026-10-30, against a session
+that closed at 16:00:
+
+| field | partial (10:23) | actual | |
+|---|---|---|---|
+| open | 761.38 | 761.38 | - |
+| high | 761.46 | 761.46 | - |
+| low | 757.32 | 750.36 | **-6.96** |
+| close | 757.56 | 755.72 | -1.84 |
+
+The close is the smaller error. The open is right from the first print and the
+high happened to be set before the pull, but the low had not happened yet -
+and Parkinson reads high and low:
+
+| estimator | partial | actual |
+|---|---|---|
+| close to close, annualised | 24.54% | 28.40% |
+| Parkinson range, annualised | 5.20% | 14.00% |
+
+Range variance understated **7.3x**, which matters more than the close error
+does: Parkinson is the estimator that measured the half-day weight above. A
+partial bar inside that sample would have deflated the weight silently.
+
+**Why it survives.** Once stored, the freshness check finds today's date in
+the cache and stops re-downloading, so the bar outlives the session that made
+it and only a forced refresh clears it. The third instance was in the Oct-30
+short straddle log: the 10-15 row carries 773.09, the 12:33 snapshot price,
+against a 771.79 close - a 1.30 point error in a hand-kept record.
+
+**The clock underneath.** The guard asked `hour < 16` against a stamp built as
+`utc - 4 hours`, which is right in EDT and an hour fast in EST. EST began
+2026-11-01, so from that Monday the 15:45 routine would have computed 16:45,
+declared the session closed, and cached the 15:45 print as the day's close
+every trading day until March. The test helper added the same four hours, so
+every case in the suite was written in summer and the suite could not see it.
+
+Fixed in three parts: the offset comes from zoneinfo, the close time is per
+date (13:00 on the 1pm closes, which is why the half-day table is shared with
+the variance clock rather than copied), and a bar whose session has not
+finished is refused at the write rather than skipped at the fetch.

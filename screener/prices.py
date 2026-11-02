@@ -23,14 +23,23 @@ FRESHNESS
 The cache is compared against the last session whose close SHOULD exist, not
 against a fixed age. A "four days is fresh" rule breaks on exactly the day it
 matters: Friday to Tuesday over a long weekend is four days, so it served
-stale data on the first session back. Holidays are not enumerated - guessing
-one costs a download that returns the same data.
+stale data on the first session back.
+
+That question - has this date's session finished - is also the one that decides
+whether a bar may be cached at all, so both callers go through
+`session_closed`. It needs the exchange calendar, which lives in vol.py beside
+the variance clock: the holidays to skip, and the 1pm closes, because a bar
+pulled at 14:00 on the day after Thanksgiving is final and the same bar pulled
+at 14:00 any other day is not.
 """
 
 import csv
 import datetime as dt
 import pathlib
 import sys
+from zoneinfo import ZoneInfo
+
+from . import vol
 
 SERIES = {
     "SPY": "spy_ohlc.csv",       # the underlying, for realized volatility
@@ -45,17 +54,65 @@ OUT_DIR = ROOT / "data" / "prices"
 COLS = ["date", "open", "high", "low", "close"]
 
 
+ET = ZoneInfo("America/New_York")
+REGULAR_CLOSE = dt.time(16, 0)
+HALF_DAY_CLOSE = dt.time(13, 0)
+
+
+def _et(now=None):
+    """Now in exchange time, read from the zoneinfo database.
+
+    This was `now_utc - timedelta(hours=4)`, which is right in summer and an
+    hour fast all winter. EST began 2026-11-01, and from that Monday the
+    15:45 routine would have computed 16:45, declared the session closed, and
+    cached the 15:45 print as the day's close - every trading day until March.
+    A naive datetime is read as UTC, which is what the old seam passed."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    return now.astimezone(ET)
+
+
+def session_close(d):
+    """When trading ends on `d`: 13:00 on the early closes, 16:00 otherwise."""
+    return HALF_DAY_CLOSE if d in vol.HALF_DAYS else REGULAR_CLOSE
+
+
+def session_closed(d, now=None):
+    """Whether a settled close exists for `d`. False for a weekend, a holiday,
+    and a session still trading - the three cases where asking for that date's
+    close gets you something that is not one."""
+    if d.weekday() >= 5 or d in vol.HOLIDAYS:
+        return False
+    return _et(now) >= dt.datetime.combine(d, session_close(d), tzinfo=ET)
+
+
 def last_expected_session(now_utc=None):
-    """The most recent session whose close should exist by now, in ET.
+    """The most recent session whose close should exist by now.
 
     `now_utc` is a seam for the tests; left out it reads the clock."""
-    et = (now_utc or dt.datetime.now(dt.timezone.utc)) - dt.timedelta(hours=4)
-    d = et.date()
-    if et.weekday() >= 5 or et.hour < 16:      # weekend, or before today's close
-        d -= dt.timedelta(days=1)
-    while d.weekday() >= 5:
+    d = _et(now_utc).date()
+    while not session_closed(d, now_utc):
         d -= dt.timedelta(days=1)
     return d
+
+
+def settled_only(rows, now=None):
+    """`rows` minus any bar whose session has not finished, and the dates cut.
+
+    Yahoo returns a row for the current date while the market is still open,
+    with the live print in `close` and `high`/`low` truncated to the range so
+    far. Caching it stores a partial bar as the day's close - and because the
+    freshness check then finds today's date in the cache, nothing re-downloads
+    it until the next session, so the bad bar conceals itself and only a
+    `refresh` will clear it.
+
+    On 2026-10-30 a 10:23 pull put 757.56 in the close column against an
+    actual 755.72, and left the low 6.96 points short of the real 750.36,
+    which understated that session's Parkinson range by 7.3x."""
+    settled = last_expected_session(now)
+    keep = [r for r in rows if r["date"] <= settled]
+    return keep, [r["date"] for r in rows if r["date"] > settled]
 
 
 def read_cache(path):
@@ -110,7 +167,10 @@ def history(symbol, refresh=False):
     cached = read_cache(path)
     if cached and not refresh and cached[-1]["date"] >= last_expected_session():
         return cached
-    fetched = download(symbol)
+    fetched, unsettled = settled_only(download(symbol))
+    if unsettled:
+        print(f"  {symbol}: not caching {', '.join(str(d) for d in unsettled)} "
+              f"- the session has not closed")
     if not fetched:
         if cached:
             print(f"  {symbol}: download returned nothing, using the cache "
