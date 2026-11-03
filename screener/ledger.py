@@ -92,7 +92,7 @@ OUT_DIR = ROOT / "data" / "ledger"
 
 COLS = ["snapshot", "asof", "kind", "spot",
         "from_expiry", "to_expiry", "start_date", "end_date",
-        "start_price", "sessions_ahead", "resolution", "edge_margin",
+        "start_price", "sessions_ahead", "edge_margin",
         "spans_dropped", "put_skew_to", "call_skew_to",
         "sessions", "days", "forward_vol", "forward_vol_error",
         "vs_rest", "vs_rest_error", "rest_differs",
@@ -201,9 +201,10 @@ def build(names=None):
                 # distance there is no way to tell that drift from news.
                 "sessions_ahead": round(ahead, 4),
                 # Not derivable later: the chain that priced this window is
-                # gone by the time it settles, so how well it was resolved
-                # has to ride along with it.
-                "resolution": w.get("resolution") or "",
+                # gone by the time it settles, so how well it converged has
+                # to ride along with it. Carried raw, with no cutoff applied,
+                # so a threshold can be chosen when there is a sample to
+                # choose it on rather than baked in now.
                 "edge_margin": _f(w.get("edge_margin")),
                 "spans_dropped": int(_f(w.get("spans_dropped")) or 0),
                 "put_skew_to": _f(w.get("put_skew_to")),

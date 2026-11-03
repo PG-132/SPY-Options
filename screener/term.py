@@ -88,16 +88,17 @@ CONFIG = {
     # because a window stripping a variance swap total against an ATM total
     # is not measuring anything.
     "max_vs_edge_cost": 0.0005,
-    # The drop above is a cliff on a continuous quantity, and expiries land
-    # either side of it by margins far smaller than the difference between
-    # them and a well sampled one. On 2026-10-29, 11-05 was kept at 0.000474
-    # with 27 strikes and 11-09 dropped at 0.000519 with 30 - a 9% difference
-    # in edge cost, opposite treatment - and the window built on 11-05 then
-    # produced the largest roll-down reading on the table. So what survives
-    # the cliff is graded too: an expiry carrying more than this fraction of
-    # the drop threshold is marginal, and every window with a foot on one
-    # says so rather than reading like the 134-strike expiry next to it.
-    "marginal_edge_fraction": 0.5,
+    # How much of that budget each surviving expiry spent, as a fraction,
+    # is reported per window rather than reduced to a flag. `vs_edge_cost` is
+    # what the outermost strike pair on each side was worth, so it is a
+    # convergence test on the grid, not an error bar: near zero means the
+    # integral died inside the band, large means the band cut it off while it
+    # was still climbing. It is also a LOWER bound on the damage - it prices
+    # one strike pair, and everything past the edge is unmeasurable from
+    # inside the data. The case this threshold was built from spent 0.089 vol
+    # points at the edge and came out 0.7 points under its neighbour, roughly
+    # 8x the probe, which is why a tolerance of 0.05 vol points is not as
+    # tight as it looks.
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -110,7 +111,7 @@ FORWARD_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions",
                 "source", "total_var_from", "total_var_to", "forward_var",
                 "forward_vol", "forward_vol_error", "atm_to", "level_to",
                 "put_skew_to", "call_skew_to", "arbitrage",
-                "resolution", "edge_margin", "spans_dropped"]
+                "edge_margin", "spans_dropped"]
 CONSTANT_COLS = ["sessions", "vol", "interpolated_between", "total_var"]
 
 
@@ -181,9 +182,6 @@ def load(snapshot):
             "expiry": fit["expiry"],
             "strikes": _f(e.get("vs_strikes")) or _f(e.get("strikes_read")),
             "edge_margin": round(margin, 4) if margin is not None else None,
-            "resolution": ("firm" if margin is None
-                           or margin <= CONFIG["marginal_edge_fraction"]
-                           else "marginal"),
             "sessions": sessions,
             # `sessions` is the variance clock and counts a 1pm close as about
             # half. These two come from expiries.csv and say how many whole
@@ -245,14 +243,11 @@ def forward_windows(rows, dropped=()):
         vol_err = (err_var / (2.0 * vol)) if vol else None
         # The weaker foot decides: a window is only as resolved as the worse
         # of the two totals it differences.
-        feet = [x.get("resolution") for x in (a, b) if x.get("resolution")]
         margins = [x["edge_margin"] for x in (a, b)
                    if x.get("edge_margin") is not None]
         between = sum(1 for g in gone
                       if str(a.get("expiry", "")) < g < str(b.get("expiry", "")))
         out.append({
-            "resolution": ("marginal" if "marginal" in feet
-                           else ("firm" if feet else None)),
             "edge_margin": round(max(margins), 4) if margins else None,
             "spans_dropped": between,
             "from_expiry": a["expiry"], "to_expiry": b["expiry"],
@@ -338,19 +333,22 @@ def report(snapshot, rows, windows, curve, dest, dropped=()):
         print(f"    ! {exp} left out: {strikes:.0f} strikes, its integral still moving "
               f"{edge * 100:.3f} vol points at the edge")
     print()
-    print(f"  {'window':24}{'sess':>5}{'fwd vol':>10}{'+/-':>8}{'level to there':>16}")
+    print(f"  {'window':20}{'sess':>5}{'fwd vol':>10}{'+/-':>8}{'edge':>7}"
+          f"{'level to there':>16}")
     for w in windows:
         vol = f"{w['forward_vol'] * 100:8.2f}%" if w["forward_vol"] else "negative"
         err = f"{w['forward_vol_error'] * 100:6.2f}p" if w["forward_vol_error"] else "     -"
-        mark = "~" if w.get("resolution") == "marginal" else ""
-        if w.get("spans_dropped"):
-            mark += f"+{w['spans_dropped']:.0f}"
+        # A number on every row, like the error beside it, rather than a mark
+        # on the rows that cross some cutoff. The quantity is continuous and
+        # has no natural break in it, so there is nothing for a flag to mean.
+        edge = (f"{w['edge_margin']:.2f}"
+                if w.get("edge_margin") is not None else "-")
         label = (f"{w['from_expiry'][5:]} to {w['to_expiry'][5:]}"
-                 + (f"  {mark}" if mark else ""))
+                 + (f"  +{w['spans_dropped']:.0f}" if w.get("spans_dropped") else ""))
         # The count of dates, not the clock: printing the clock rounded is how
         # a 3.5-session window comes to call itself 4.
         sess = f"{w.get('sessions_calendar', w['sessions']):.0f}" + ("*" if w.get("half_days") else "")
-        print(f"  {label:24}{sess:>5}{vol:>10}{err:>8}"
+        print(f"  {label:20}{sess:>5}{vol:>10}{err:>8}{edge:>7}"
               f"{w['level_to'] * 100:15.2f}%")
     early = [w for w in windows if w.get("half_days")]
     for w in early:
@@ -359,19 +357,21 @@ def report(snapshot, rows, windows, curve, dest, dropped=()):
         print(f"    * {w['from_expiry'][5:]} to {w['to_expiry'][5:]} holds {held}; "
               f"its variance clock reads {w['sessions']:.2f} sessions, "
               f"not {w['sessions_calendar']:.0f}")
-    weak = [w for w in windows if w.get("resolution") == "marginal"]
-    if weak:
-        worst = max(w["edge_margin"] for w in weak if w.get("edge_margin"))
-        print(f"    ~ a foot on an expiry spending {worst:.0%} of the drop "
-              f"threshold: kept, but its integral")
-        print(f"      is close to not converging, and a truncated one reads "
-              f"low. Not the same number")
-        print(f"      as a window between two well sampled expiries.")
+    graded = [w["edge_margin"] for w in windows
+              if w.get("edge_margin") is not None]
+    if graded:
+        print(f"    edge: the fraction of the drop budget the weaker foot "
+              f"spent getting its integral")
+        print(f"      to converge. 1.00 is refusal. A cut-off integral reads "
+              f"low, so the closer to 1.00")
+        print(f"      the further below its true level that end of the window "
+              f"sits. Worst here {max(graded):.2f}.")
     for w in windows:
         if w.get("spans_dropped"):
             n = w["spans_dropped"]
+            word = "expiry" if n == 1 else "expiries"
             print(f"    +{n:.0f} {w['from_expiry'][5:]} to {w['to_expiry'][5:]} "
-                  f"stands in for {n:.0f} expiries left out above. A dropped "
+                  f"stands in for {n:.0f} {word} left out above. A dropped "
                   f"expiry does not")
             print(f"      leave a hole, it widens its neighbour - so this is "
                   f"a block, not a resolved window.")

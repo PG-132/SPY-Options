@@ -24,7 +24,7 @@ YEAR = term.CONFIG["sessions_per_year"]
 
 
 def expiry(sessions, atm, days=None, atm_error=0.0, calendar=None, half_days=0,
-           name=None, resolution="firm", edge_margin=0.2):
+           name=None, edge_margin=0.2):
     """One fitted expiry, in the shape load() produces. Days default to the
     session count so the two clocks agree unless a test wants them apart, and
     so does the calendar count - pass `calendar` and `half_days` to put a 1pm
@@ -32,7 +32,7 @@ def expiry(sessions, atm, days=None, atm_error=0.0, calendar=None, half_days=0,
     days = sessions if days is None else days
     T = days / 365.0
     return {"expiry": name or f"E{sessions:g}",
-            "resolution": resolution, "edge_margin": edge_margin,
+            "edge_margin": edge_margin,
             "sessions": float(sessions), "days": float(days),
             "sessions_calendar": float(sessions if calendar is None else calendar),
             "half_days": float(half_days),
@@ -198,21 +198,24 @@ class TestConstantMaturity(unittest.TestCase):
 
 
 class TestResolution(unittest.TestCase):
-    """How well the chain underneath a window was resolved. The drop rule is
-    a cliff on a continuous quantity and expiries land either side of it by
+    """How well the chain underneath a window converged. The drop rule is a
+    cliff on a continuous quantity and expiries land either side of it by
     margins much smaller than the gap to a well sampled one, so what survives
-    is graded and what is removed is recorded."""
+    is graded and what is removed is recorded. The grade stays a number: the
+    distribution it comes from has no natural break, so there is nothing for
+    a firm/marginal label to mean and none is stored."""
 
     def test_a_window_is_only_as_resolved_as_its_weaker_foot(self):
-        rows = [expiry(1, 0.15, resolution="firm", edge_margin=0.20),
-                expiry(2, 0.15, resolution="marginal", edge_margin=0.95)]
-        w = term.forward_windows(rows)[0]
-        self.assertEqual(w["resolution"], "marginal")
-        self.assertAlmostEqual(w["edge_margin"], 0.95)
+        rows = [expiry(1, 0.15, edge_margin=0.20),
+                expiry(2, 0.15, edge_margin=0.95)]
+        self.assertAlmostEqual(term.forward_windows(rows)[0]["edge_margin"], 0.95)
 
-    def test_two_firm_feet_make_a_firm_window(self):
-        w = term.forward_windows([expiry(1, 0.15), expiry(2, 0.15)])[0]
-        self.assertEqual(w["resolution"], "firm")
+    def test_every_window_carries_a_margin_not_only_the_bad_ones(self):
+        """No cutoff anywhere, so a well converged window reports its number
+        just the same - that is the column the ledger settles against."""
+        w = term.forward_windows([expiry(1, 0.15, edge_margin=0.49),
+                                  expiry(2, 0.15, edge_margin=0.31)])[0]
+        self.assertAlmostEqual(w["edge_margin"], 0.49)
 
     def test_a_dropped_expiry_widens_a_window_rather_than_leaving_a_hole(self):
         """The case this exists for. On 2026-10-29 the four expiries 11-09 to
@@ -274,12 +277,12 @@ class TestResolution(unittest.TestCase):
 
         rows, dropped = term.load(snap)
         by = {r["expiry"]: r for r in rows}
-        self.assertEqual(by["E5"]["resolution"], "firm")
-        self.assertEqual(by["E15"]["resolution"], "marginal")
+        self.assertAlmostEqual(by["E5"]["edge_margin"], 0.268, places=3)
         self.assertAlmostEqual(by["E15"]["edge_margin"], 0.948, places=3)
         self.assertEqual(dropped, [], "0.000474 is under the threshold")
         # and it carries to every window with a foot on it
-        self.assertEqual(term.forward_windows(rows)[-1]["resolution"], "marginal")
+        self.assertAlmostEqual(
+            term.forward_windows(rows)[-1]["edge_margin"], 0.948, places=3)
 
 
 class TestEndToEnd(unittest.TestCase):

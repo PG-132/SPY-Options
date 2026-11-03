@@ -118,11 +118,12 @@ WINDOW_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions", "days",
                "rest_vol", "vs_rest", "vs_rest_error", "rest_differs",
                "neighbour_vol", "vs_neighbours", "vs_neighbours_error",
                "neighbours_differ",
-               # How resolved the chain was underneath this window. Carried
-               # here rather than printed once, because the ledger settles
-               # these months later and a verdict on a window built over four
-               # expiries nobody could price is not the same verdict.
-               "resolution", "edge_margin", "spans_dropped"]
+               # How well the chain underneath this window converged.
+               # Carried here rather than printed once, because the ledger
+               # settles these months later and a verdict on a window built
+               # over four expiries nobody could price is not the same
+               # verdict.
+               "edge_margin", "spans_dropped"]
 CHAIN_COLS = ["snapshot", "date", "session_remaining", "sessions", "days",
               "chain_vol",
               "chain_vol_calendar", "windows",

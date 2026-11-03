@@ -1138,8 +1138,9 @@ so a slot read off a stub charges too little roll-down and leaves too much in
 `net`.
 
 So what survives the cliff is graded: `edge_margin` is the fraction of the
-threshold an expiry spends, a window inherits the worse of its two feet, and
-anything above 0.5 is `marginal`.
+threshold an expiry spends and a window inherits the worse of its two feet.
+It stays a number - see the 11-02 entry below for why no cutoff was put on
+it.
 
 **A dropped expiry does not leave a hole, it widens its neighbour.** 11-09 to
 11-12 were all dropped on 10-29, so the chain showed one five-session window
@@ -1149,8 +1150,8 @@ them, and the flag is written into the ledger rather than announced once in
 `term`, because the chain that priced a window is gone by the time it settles
 and a verdict on a block over four unpriced expiries is not the same verdict.
 
-**An open question, not a finding.** Grouping the 62 settled windows by this
-flag points the unintuitive way:
+**An open question, not a finding.** Splitting the 62 settled windows at a
+margin of 0.5 points the unintuitive way:
 
 | | n | distinct windows | mean abs(realized - priced) |
 |---|---|---|---|
@@ -1160,5 +1161,72 @@ flag points the unintuitive way:
 Window length does not explain it - the median is one session on both sides,
 and restricting to one-session windows preserves the gap at 7.50 against
 5.88. But 16 and 22 distinct windows re-measured across nine snapshots over
-five weeks are not independent observations and are not a sample. Recorded so
-it can be re-run on a month of daily snapshots; nothing is claimed from it.
+five weeks are not independent observations and are not a sample, and those
+nine snapshots span three collection bands, which the next entry shows moves
+the margin more than anything else here does. Recorded so it can be re-run on
+a month of dailies under one band, against the raw margin rather than a
+split; nothing is claimed from it.
+
+**Where the integral actually stops, and why there is no cutoff (2026-11-02).**
+The collection band is a request, not a result. It asks for 12 expected moves
+below spot and 6 above; what comes back is the intersection of that with what
+is listed and quoted. On 2026-10-29 the two ends of the chain behaved in
+opposite ways:
+
+| expiry | band asked for | strikes available | n |
+|---|---|---|---|
+| 11-05, 7 dte | 605.4 - 848.6 | 700 - 845 | 30 |
+| 11-13, 15 dte | 520.0 - 891.3 | 520 - 890 | 159 |
+
+11-13 got what it asked for. 11-05 asked for strikes down to 605 and the
+chain stops at 700, 95 points short, with every listed strike two-sided - so
+nothing was lost to bad quotes, SPY has no strikes listed down there for that
+expiry yet. Its spacing is about $5 against 11-13's $2.3. So the realised
+edge is min(band, what exists), and which one binds flips by expiry: at the
+long end the band is the constraint, which is the narrow-band blind spot
+`collected_band` documents; at the short end the listing is, inside our own
+band, on the put side where the 1/K^2 weight and the fat tail both are.
+
+`vs_edge_cost` is therefore a convergence test, not an error bar: integrate
+again without the outermost strike pair and see how far the answer moves.
+Near zero means the integrand died inside the band. It is also a LOWER bound
+on the damage, because it prices one strike pair and everything past the edge
+is unmeasurable from inside the data. Perturbing 11-05's level by exactly its
+own edge cost, 0.047 vol points, moves the two windows touching it +0.26 and
+-0.18 points - amplified about five times by the division, opposite signs,
+the see-saw. That is small against its +/-0.74p error bar. The case the
+threshold was built from spent 0.089 points at the edge and came out 0.7
+points under its neighbour, roughly eight times the probe, which is why a
+tolerance of 0.05 vol points is not as tight as it looks.
+
+**The band changed mid-sample, which invalidated the first calibration.** An
+earlier pass pooled 115 expiry readings into one distribution to argue a
+firm/marginal cutoff at 0.5 fired too often. Three collection regimes were
+mixed in it:
+
+| band | n | median margin | share > 0.5 |
+|---|---|---|---|
+| 6/3 | 35 | 0.622 | 68.6% |
+| 20/10 | 12 | 0.387 | 16.7% |
+| 12/6 | 68 | 0.376 | 22.1% |
+
+The 6/3 snapshots inflated it, which is itself the narrow-band effect
+measured directly: a tighter band leaves the integrand alive at the edge by
+construction. Under 12/6 alone, 62 windows, a 0.5 cutoff flags 33.9% and
+0.85 flags 12.9%.
+
+No cutoff was kept. The margin runs 0.104 to 0.948 with no break anywhere in
+it, so there is nothing for a firm/marginal label to mean, and any boundary
+chosen now would be chosen on the same six snapshots the settlement
+comparison above will be re-run on. The report prints the margin as a column
+on every window beside the error bar, the ledger stores it raw, and the
+`resolution` label was removed rather than tuned.
+
+The grade was also checked for a disguised tenor effect, because on 11-02 the
+four expiries 11-09 to 11-12 read 0.584, 0.736, 0.810, 0.870 in tenor order.
+Over the 68 readings under the current band the margin correlates -0.52 with
+strike count, which is what it claims to measure, and -0.26 with log sessions
+to expiry - the opposite sign to the worry, and explained by strike count
+rising with tenor at +0.69. Longer-dated expiries are better listed, so they
+converge better. Those four shared a strike count at increasing tenor; the
+pattern was theirs, not the metric's.
