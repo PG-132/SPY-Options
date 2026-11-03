@@ -117,7 +117,12 @@ WINDOW_COLS = ["from_expiry", "to_expiry", "session_priced", "sessions", "days",
                "put_skew_to", "call_skew_to",
                "rest_vol", "vs_rest", "vs_rest_error", "rest_differs",
                "neighbour_vol", "vs_neighbours", "vs_neighbours_error",
-               "neighbours_differ"]
+               "neighbours_differ",
+               # How resolved the chain was underneath this window. Carried
+               # here rather than printed once, because the ledger settles
+               # these months later and a verdict on a window built over four
+               # expiries nobody could price is not the same verdict.
+               "resolution", "edge_margin", "spans_dropped"]
 CHAIN_COLS = ["snapshot", "date", "session_remaining", "sessions", "days",
               "chain_vol",
               "chain_vol_calendar", "windows",
@@ -190,13 +195,15 @@ def with_spot(rows, remaining=0.0):
     return [spot] + list(rows)
 
 
-def decompose(rows, remaining=0.0):
+def decompose(rows, remaining=0.0, dropped=()):
     """Windows tiling the snapshot to the last expiry, and the rows behind.
 
     The forward arithmetic is term's, called once on the extended rows rather
-    than reimplemented for the leading stub."""
+    than reimplemented for the leading stub. `dropped` rides along so the
+    windows know where the chain could not be resolved - without it the
+    leading stub and every block look as solid as a daily."""
     full = with_spot(rows, remaining)
-    return term.forward_windows(full), full
+    return term.forward_windows(full, dropped), full
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +393,7 @@ def analyse(snapshot, refresh=False):
         raise SystemExit(f"{snapshot}: need at least two fitted expiries, "
                          f"found {len(rows)}")
     remaining = session_remaining(snapshot)
-    windows, full = decompose(rows, remaining)
+    windows, full = decompose(rows, remaining, dropped)
     scored = richness(windows, full)
     chain = chain_level(windows, full)
 

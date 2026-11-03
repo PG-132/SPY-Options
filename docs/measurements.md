@@ -1114,3 +1114,51 @@ expiry charges too little roll-down and leaves too much in `net`. The two
 largest readings on the 10-30 table, -3.81p and -5.64p of roll-down, both sit
 next to that expiry. Windows touching a low-resolution expiry need flagging
 before `net` is trusted at the point of a decision.
+
+## How resolved was the chain underneath a window (2026-11-02)
+
+An expiry is dropped from the term structure when its variance-swap integral
+is still moving more than 0.0005 at the edge of the strike grid. That is a
+cliff on a continuous quantity, and expiries land either side of it by
+margins far smaller than the distance to a well sampled one. On the 10-29
+chain:
+
+| expiry | strikes | edge cost | |
+|---|---|---|---|
+| 2026-11-04 | 112 | 0.000134 | kept |
+| 2026-11-05 | 27 | **0.000474** | kept, 95% of the threshold |
+| 2026-11-06 | 134 | 0.000139 | kept |
+| 2026-11-09 | 30 | 0.000519 | dropped |
+
+11-05 and 11-09 differ by 9% in edge cost and get opposite treatment, and
+until now 11-05 read exactly like the 134-strike expiry beside it. The two
+windows with a foot on it produced the largest roll-down readings on the
+10-30 movers table, -3.81p and -5.64p. A truncated integral is biased down,
+so a slot read off a stub charges too little roll-down and leaves too much in
+`net`.
+
+So what survives the cliff is graded: `edge_margin` is the fraction of the
+threshold an expiry spends, a window inherits the worse of its two feet, and
+anything above 0.5 is `marginal`.
+
+**A dropped expiry does not leave a hole, it widens its neighbour.** 11-09 to
+11-12 were all dropped on 10-29, so the chain showed one five-session window
+from 11-06 to 11-13 where five one-session windows belonged - and nothing in
+the output said the block was standing in for them. `spans_dropped` counts
+them, and the flag is written into the ledger rather than announced once in
+`term`, because the chain that priced a window is gone by the time it settles
+and a verdict on a block over four unpriced expiries is not the same verdict.
+
+**An open question, not a finding.** Grouping the 62 settled windows by this
+flag points the unintuitive way:
+
+| | n | distinct windows | mean abs(realized - priced) |
+|---|---|---|---|
+| firm | 28 | 16 | 7.21p |
+| marginal | 34 | 22 | 5.43p |
+
+Window length does not explain it - the median is one session on both sides,
+and restricting to one-session windows preserves the gap at 7.50 against
+5.88. But 16 and 22 distinct windows re-measured across nine snapshots over
+five weeks are not independent observations and are not a sample. Recorded so
+it can be re-run on a month of daily snapshots; nothing is claimed from it.

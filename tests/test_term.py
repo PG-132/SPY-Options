@@ -23,14 +23,17 @@ from screener import term  # noqa: E402
 YEAR = term.CONFIG["sessions_per_year"]
 
 
-def expiry(sessions, atm, days=None, atm_error=0.0, calendar=None, half_days=0):
+def expiry(sessions, atm, days=None, atm_error=0.0, calendar=None, half_days=0,
+           name=None, resolution="firm", edge_margin=0.2):
     """One fitted expiry, in the shape load() produces. Days default to the
     session count so the two clocks agree unless a test wants them apart, and
     so does the calendar count - pass `calendar` and `half_days` to put a 1pm
     close inside the range."""
     days = sessions if days is None else days
     T = days / 365.0
-    return {"expiry": f"E{sessions:g}", "sessions": float(sessions), "days": float(days),
+    return {"expiry": name or f"E{sessions:g}",
+            "resolution": resolution, "edge_margin": edge_margin,
+            "sessions": float(sessions), "days": float(days),
             "sessions_calendar": float(sessions if calendar is None else calendar),
             "half_days": float(half_days),
             "T": T, "atm": atm, "level": atm, "source": "atm", "atm_error": atm_error,
@@ -192,6 +195,91 @@ class TestConstantMaturity(unittest.TestCase):
     def test_an_exact_hit_uses_that_expiry_rather_than_interpolating(self):
         got = term.constant_maturity(self.rows, 14)
         self.assertEqual(got["interpolated_between"], "E14")
+
+
+class TestResolution(unittest.TestCase):
+    """How well the chain underneath a window was resolved. The drop rule is
+    a cliff on a continuous quantity and expiries land either side of it by
+    margins much smaller than the gap to a well sampled one, so what survives
+    is graded and what is removed is recorded."""
+
+    def test_a_window_is_only_as_resolved_as_its_weaker_foot(self):
+        rows = [expiry(1, 0.15, resolution="firm", edge_margin=0.20),
+                expiry(2, 0.15, resolution="marginal", edge_margin=0.95)]
+        w = term.forward_windows(rows)[0]
+        self.assertEqual(w["resolution"], "marginal")
+        self.assertAlmostEqual(w["edge_margin"], 0.95)
+
+    def test_two_firm_feet_make_a_firm_window(self):
+        w = term.forward_windows([expiry(1, 0.15), expiry(2, 0.15)])[0]
+        self.assertEqual(w["resolution"], "firm")
+
+    def test_a_dropped_expiry_widens_a_window_rather_than_leaving_a_hole(self):
+        """The case this exists for. On 2026-10-29 the four expiries 11-09 to
+        11-12 were dropped, so the chain showed one five-session window from
+        11-06 to 11-13 where five one-session windows belonged - and nothing
+        in the output said the block was standing in for them."""
+        rows = [expiry(1, 0.15, name="2026-11-06"),
+                expiry(6, 0.15, name="2026-11-13")]
+        dropped = [("2026-11-09", 30, 0.000519), ("2026-11-10", 30, 0.000652),
+                   ("2026-11-11", 30, 0.000735), ("2026-11-12", 30, 0.000803)]
+        self.assertEqual(term.forward_windows(rows, dropped)[0]["spans_dropped"], 4)
+
+    def test_a_drop_outside_the_window_is_not_counted(self):
+        rows = [expiry(1, 0.15, name="2026-11-06"),
+                expiry(2, 0.15, name="2026-11-09")]
+        self.assertEqual(
+            term.forward_windows(rows, [("2026-11-20", 30, 0.0006)])[0]
+            ["spans_dropped"], 0)
+
+    def test_an_endpoint_is_not_spanned(self):
+        rows = [expiry(1, 0.15, name="2026-11-06"),
+                expiry(2, 0.15, name="2026-11-09")]
+        for d in ("2026-11-06", "2026-11-09"):
+            self.assertEqual(
+                term.forward_windows(rows, [(d, 30, 0.0006)])[0]
+                ["spans_dropped"], 0)
+
+    def test_the_cliff_is_graded_not_just_passed(self):
+        """2026-10-29 kept 11-05 at 0.000474 and dropped 11-09 at 0.000519:
+        a 9% difference in edge cost, opposite treatment. The one that
+        survived must not read like the 134-strike expiry beside it."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = pathlib.Path(tmp.name)
+        snap = "2026-10-29_1422"
+        (root / "iv" / snap).mkdir(parents=True)
+        (root / "surface" / snap).mkdir(parents=True)
+        exp, fit = [], []
+        # (sessions, vol, edge cost, strikes) - the third barely survives
+        for s, v, edge, k in ((5, 0.12, 0.000134, 112), (10, 0.13, 0.000139, 134),
+                              (15, 0.14, 0.000474, 27)):
+            exp.append({"expiry": f"E{s}", "days_to_expiry": s / 252 * 365,
+                        "forward_iv_cost": 0.0003, "vs_rate": v,
+                        "vs_edge_cost": edge, "vs_error": 0.0004,
+                        "vs_strikes": k, "strikes_read": k})
+            fit.append({"expiry": f"E{s}", "sessions": s, "atm_fitted": v,
+                        "rms_vol_pts": 0.02, "points_fitted": k})
+        for path, rows in (((root / "iv" / snap / "expiries.csv"), exp),
+                           ((root / "surface" / snap / "fits.csv"), fit)):
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=list(rows[0]))
+                w.writeheader()
+                w.writerows(rows)
+        for name, value in (("IV_DIR", root / "iv"),
+                            ("SURFACE_DIR", root / "surface")):
+            old = getattr(term, name)
+            setattr(term, name, value)
+            self.addCleanup(setattr, term, name, old)
+
+        rows, dropped = term.load(snap)
+        by = {r["expiry"]: r for r in rows}
+        self.assertEqual(by["E5"]["resolution"], "firm")
+        self.assertEqual(by["E15"]["resolution"], "marginal")
+        self.assertAlmostEqual(by["E15"]["edge_margin"], 0.948, places=3)
+        self.assertEqual(dropped, [], "0.000474 is under the threshold")
+        # and it carries to every window with a foot on it
+        self.assertEqual(term.forward_windows(rows)[-1]["resolution"], "marginal")
 
 
 class TestEndToEnd(unittest.TestCase):

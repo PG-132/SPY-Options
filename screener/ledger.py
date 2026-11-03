@@ -92,7 +92,8 @@ OUT_DIR = ROOT / "data" / "ledger"
 
 COLS = ["snapshot", "asof", "kind", "spot",
         "from_expiry", "to_expiry", "start_date", "end_date",
-        "start_price", "sessions_ahead", "put_skew_to", "call_skew_to",
+        "start_price", "sessions_ahead", "resolution", "edge_margin",
+        "spans_dropped", "put_skew_to", "call_skew_to",
         "sessions", "days", "forward_vol", "forward_vol_error",
         "vs_rest", "vs_rest_error", "rest_differs",
         "vs_neighbours", "vs_neighbours_error", "neighbours_differ",
@@ -199,6 +200,12 @@ def build(names=None):
                 # a period reprices as it approaches, and without knowing the
                 # distance there is no way to tell that drift from news.
                 "sessions_ahead": round(ahead, 4),
+                # Not derivable later: the chain that priced this window is
+                # gone by the time it settles, so how well it was resolved
+                # has to ride along with it.
+                "resolution": w.get("resolution") or "",
+                "edge_margin": _f(w.get("edge_margin")),
+                "spans_dropped": int(_f(w.get("spans_dropped")) or 0),
                 "put_skew_to": _f(w.get("put_skew_to")),
                 "call_skew_to": _f(w.get("call_skew_to")),
                 "sessions": sessions, "days": _f(w["days"]),
