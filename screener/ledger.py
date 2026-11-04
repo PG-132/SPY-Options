@@ -587,17 +587,18 @@ def settled_summary(rows):
     leaving the choice to whoever reads this would just be a free
     parameter: the band that gives the nicer ratio.
 
-    What is established is narrower than the exclusion. A tight band
-    understates the integrated variance LEVEL by 0.5 to 1.1 vol points. A
-    forward window is a DIFFERENCE of two levels, so whether that bias
-    survives differencing depends on how it varies with tenor, and that has
-    not been measured - it could largely cancel. The realized leg is read
-    from SPY closes and cannot be affected either way. So these rows are
-    out because their inputs are known wrong and the effect on the
-    difference is unknown, not because the window vol is known to be
-    biased. Truncating a 12/6 chain's grid to what 6/3 would have collected
-    and re-integrating would settle it on one chain, with no period
-    confound."""
+    A tight band understates the integrated variance LEVEL by 0.5 to 1.1
+    vol points, and that survives differencing. The band is sqrt(T)-scaled,
+    so it cuts off about the same fraction of the distribution at every
+    tenor and the understatement is roughly constant in vol points; a
+    window differencing two such totals inherits it at close to full size.
+    The realized leg is read from SPY closes and cannot be affected either
+    way, so pooling these rows compares a low priced leg against an
+    untouched realized one.
+
+    What does NOT follow is any direction for the pooled ratio: the
+    realized leg moves with the market, and that is what drove the gap
+    between pooling and not."""
     done = [r for r in rows
             if r["status"] == "settled" and converged(r.get("band"))]
     skipped = sum(1 for r in rows if r["status"] == "settled"
@@ -780,10 +781,10 @@ def report(rows, names):
         if s.get("skipped"):
             print(f"    {s['skipped']} more closed readings are left out: "
                   f"collected under a band too")
-            print(f"      narrow to carry a rate. What that does to a window, "
-                  f"which is a difference")
-            print(f"      of two levels, is unmeasured - so they are excluded "
-                  f"rather than trusted.")
+            print(f"      narrow to carry a rate. The band is sqrt(T)-scaled, "
+                  f"so the shortfall is")
+            print(f"      near constant in vol points and a window inherits "
+                  f"most of it.")
 
     try:
         shown = OUT_DIR.relative_to(ROOT)

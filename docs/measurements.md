@@ -1262,20 +1262,28 @@ and has nothing to do with how the chain was collected. So most of that gap
 is a calmer late September and mid October, not an artefact of the band. Band
 and period are confounded in this sample and nothing here separates them.
 
-**And the exclusion is wider than what has been established.** The measured
-bias is on the integrated variance LEVEL. A forward window is a difference of
-two levels, so whether the bias survives differencing depends on how it
-varies with tenor - constant in vol points and it mostly passes through,
-growing or shrinking and it partly cancels. That has not been measured, so
-"a 6/3 window's priced leg is understated" does not follow from "a 6/3 level
-is understated", and the pooled ratio is not required to move in any
-particular direction. These rows are out because their inputs are known
-wrong and the effect on the difference is unknown.
+**Does the level bias survive differencing?** Mostly yes, and it follows from
+how the band is built rather than needing a new measurement. `band_pct`
+reaches `moves * iv * sqrt(dte/365)`, so the band is sqrt(T)-scaled and cuts
+off about the same fraction of the distribution at every tenor. That makes
+the level understatement roughly constant in VOL POINTS across tenor. If vol
+is understated by d everywhere, each total's variance shortfall is about
+2*vol*d*T, and differencing two of them leaves about 2*vol*d - so the forward
+vol is understated by about d, the same as the level. It passes through at
+roughly full size rather than cancelling. A band of fixed dollar width would
+behave the opposite way.
 
-It is settleable on one chain with no period confound: truncate a 12/6 grid
-to the strikes 6/3 would have collected, re-integrate, and compare the levels
-and the forward windows side by side. Until then the exclusion is a
-precaution, not a correction.
+So 6/3's 0.5 to 1.1 points on levels is 0.5 to 1.1 points on windows, and the
+exclusion is a correction rather than a precaution. What does NOT follow is
+any particular direction for the pooled realized/priced ratio, since the
+realized leg moves with the market and dominated the 0.879 to 0.910 gap.
+
+The localized case is worse and was measured directly: one thin expiry inside
+a wide chain shifts its own total while its neighbours do not, so the window
+either side eats the error with opposite signs - the +0.26 and -0.18 see-saw
+on 11-05, about five times amplified. Chain-wide truncation passes through;
+local truncation amplifies. `edge_margin` and the drop rule are for the
+second kind, the band column for the first.
 
 The firm-vs-marginal comparison above is void rather than weakened either
 way, since about half its rows are ones this rule now refuses. It has to be
