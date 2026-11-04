@@ -52,7 +52,7 @@ import math
 import pathlib
 import sys
 
-from screener import prices
+from screener import prices, term
 
 CONFIG = {
     "horizon_months": 1,
@@ -244,7 +244,8 @@ def our_rate(snapshot):
         return None
     pts = sorted((_f(r["days_to_expiry"]), _f(r["vs_rate"])) for r in rows
                  if _f(r.get("vs_rate")) and
-                 (_f(r.get("vs_edge_cost")) or 0.0) <= 0.0005)
+                 (_f(r.get("vs_edge_cost")) or 0.0)
+                 <= term.CONFIG["max_vs_edge_cost"])
     if len(pts) < 2:
         return None
 

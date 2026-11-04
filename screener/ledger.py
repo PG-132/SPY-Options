@@ -66,7 +66,7 @@ import math
 import pathlib
 import sys
 
-from screener import prices, vol
+from screener import prices, vol, vrp
 
 CONFIG = {
     "sessions_per_year": 252,
@@ -90,7 +90,7 @@ CHAIN_DIR = ROOT / "data" / "chains"
 CONTEXT_DIR = ROOT / "data" / "context"
 OUT_DIR = ROOT / "data" / "ledger"
 
-COLS = ["snapshot", "asof", "kind", "spot",
+COLS = ["snapshot", "asof", "kind", "spot", "band",
         "from_expiry", "to_expiry", "start_date", "end_date",
         "start_price", "sessions_ahead", "edge_margin",
         "spans_dropped", "put_skew_to", "call_skew_to",
@@ -161,6 +161,52 @@ def snapshot_spot(name):
         return None
 
 
+def converged(band):
+    """Whether a chain this wide can carry a variance swap rate at all.
+
+    `vrp` has refused narrow-band chains since before any of this existed,
+    on the measurement that they understate the rate by 0.5 to 1.1 vol
+    points. The rule is read from there rather than copied, because the one
+    thing that must not happen is this module quietly keeping a different
+    threshold - and because a cut-off chosen now, on the handful of
+    snapshots held here, would be a cut-off chosen to make an answer come
+    out."""
+    try:
+        return int(str(band).split("/")[0]) >= vrp.CONFIG["converged_moves"]
+    except (ValueError, AttributeError, IndexError):
+        return False
+
+
+def snapshot_band(name, chain=None):
+    """How wide a chain this window was priced off, as "below/above" in
+    expected moves.
+
+    A variance swap rate is only as complete as the strike range behind it,
+    and the band is the single biggest thing moving the edge margin: over the
+    snapshots held here it medians 0.376 at 12/6 against 0.622 at 6/3,
+    because a tighter band cuts the integral off while it is still climbing.
+    Rates collected under different bands are different quantities, so a
+    study that pools them is pooling chains that were never comparable - and
+    this one column is the only thing that lets a later analysis notice.
+
+    Widening is not retroactive. A wide chain can be truncated down to match
+    a narrow one by re-integrating over fewer strikes, but a narrow one can
+    never be widened: those strikes were never collected.
+
+    run.json is the source; the chain summary is the fallback for snapshots
+    whose raw chain has since been cleared."""
+    path = CHAIN_DIR / name / "run.json"
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as f:
+                r = json.load(f).get("rules") or {}
+            if r.get("moves_below") is not None:
+                return f"{r['moves_below']}/{r['moves_above']}"
+        except (OSError, json.JSONDecodeError, KeyError):
+            pass
+    return (chain or {}).get("band") or ""
+
+
 def build(names=None):
     """One row per window per snapshot, oldest first.
 
@@ -182,6 +228,7 @@ def build(names=None):
         windows, chain = read_snapshot(name)
         asof = _d(chain.get("asof") or chain.get("date") or name[:10])
         spot = snapshot_spot(name)
+        band = snapshot_band(name, chain)
         kind = "anchor" if anchor_of.get(name[:10]) == name else "bracket"
         ahead = 0.0                   # the windows tile, so this is cumulative
         for w in windows:
@@ -194,6 +241,7 @@ def build(names=None):
             sessions = _f(w["sessions"]) or 0.0
             out.append({
                 "snapshot": name, "asof": asof, "kind": kind, "spot": spot,
+                "band": band,
                 "from_expiry": w["from_expiry"], "to_expiry": w["to_expiry"],
                 "start_date": start, "end_date": end,
                 # How far ahead the window begins. This is the ageing axis:
@@ -433,8 +481,17 @@ def movers(rows, newest=None, back_days=None):
     # The snapshot nearest to `back_days` ago, out of those that are at least
     # a day old. Nothing within a day of the newest: comparing two snapshots
     # from the same session measures the afternoon, not the week.
+    #
+    # And nothing collected under a different band. A wider chain carries
+    # more of the smile, so its rate sits higher for reasons that have
+    # nothing to do with the market - across a band change every window
+    # would read as having moved, in the same direction, by about the width
+    # of the difference. That is the one artefact this table cannot survive,
+    # since its whole output is differences.
+    band_now = next((r.get("band") for r in now if r.get("band")), None)
     older = sorted({r["snapshot"]: r["asof"] for r in rows
-                    if r["asof"] < asof}.items(),
+                    if r["asof"] < asof
+                    and (not band_now or r.get("band") == band_now)}.items(),
                    key=lambda kv: abs((asof - kv[1]).days - back_days))
     if not older:
         return [], newest, None
@@ -524,14 +581,34 @@ def pooled(rows):
 
 def settled_summary(rows):
     """The closed windows, split by whether they were priced above or below
-    their own chain. Not evidence yet - see the module docstring."""
-    done = [r for r in rows if r["status"] == "settled"]
+    their own chain. Not evidence yet - see the module docstring.
+
+    Narrow-band rows are left out, not offered as an option, because
+    leaving the choice to whoever reads this would just be a free
+    parameter: the band that gives the nicer ratio.
+
+    What is established is narrower than the exclusion. A tight band
+    understates the integrated variance LEVEL by 0.5 to 1.1 vol points. A
+    forward window is a DIFFERENCE of two levels, so whether that bias
+    survives differencing depends on how it varies with tenor, and that has
+    not been measured - it could largely cancel. The realized leg is read
+    from SPY closes and cannot be affected either way. So these rows are
+    out because their inputs are known wrong and the effect on the
+    difference is unknown, not because the window vol is known to be
+    biased. Truncating a 12/6 chain's grid to what 6/3 would have collected
+    and re-integrating would settle it on one chain, with no period
+    confound."""
+    done = [r for r in rows
+            if r["status"] == "settled" and converged(r.get("band"))]
+    skipped = sum(1 for r in rows if r["status"] == "settled"
+                  and not converged(r.get("band")))
     everything = pooled(done)
     if not everything:
-        return None
+        return {"skipped": skipped} if skipped else None
     return {"all": everything,
             "rich": pooled([r for r in done if r["vs_rest"] and r["vs_rest"] > 0]),
             "cheap": pooled([r for r in done if r["vs_rest"] and r["vs_rest"] <= 0]),
+            "skipped": skipped,
             "windows": len({(r["from_expiry"], r["to_expiry"]) for r in done})}
 
 
@@ -679,6 +756,9 @@ def report(rows, names):
     print()
     if not s:
         print("  nothing has settled yet")
+    elif not s.get("all"):
+        print(f"  nothing usable has settled yet: {s['skipped']} closed "
+              f"window-readings came off chains too narrow to carry a rate")
     else:
         print(f"  settled: {s['all']['n']} window-readings over "
               f"{s['windows']} distinct windows, pooled in variance")
@@ -697,6 +777,13 @@ def report(rows, names):
         print("    overlapping snapshots price the same window repeatedly, and")
         print("    only front windows have closed so far - they are the cheap")
         print("    ones, so the split above is not yet a fair comparison")
+        if s.get("skipped"):
+            print(f"    {s['skipped']} more closed readings are left out: "
+                  f"collected under a band too")
+            print(f"      narrow to carry a rate. What that does to a window, "
+                  f"which is a difference")
+            print(f"      of two levels, is unmeasured - so they are excluded "
+                  f"rather than trusted.")
 
     try:
         shown = OUT_DIR.relative_to(ROOT)

@@ -14,6 +14,7 @@ import contextlib
 import csv
 import datetime as dt
 import io
+import json
 import math
 import pathlib
 import sys
@@ -72,7 +73,18 @@ class Base(unittest.TestCase):
                 w.writeheader()
                 w.writerow({"snapshot": name, "date": name[:10],
                             "chain_vol": chain_vol})
+        # A CHAIN_DIR of its own, holding a run.json per snapshot. Without
+        # this the real data/chains leaks in for any fixture whose name
+        # happens to match a snapshot on disk, and the fixture then inherits
+        # that snapshot's collection band. Everything here is collected
+        # alike unless a test says otherwise.
+        chains = root / "chains"
+        for name in snaps:
+            (chains / name).mkdir(parents=True)
+            with open(chains / name / "run.json", "w", encoding="utf-8") as f:
+                json.dump({"rules": {"moves_below": 12, "moves_above": 6}}, f)
         for attr, value in (("CONTEXT_DIR", root / "context"),
+                            ("CHAIN_DIR", chains),
                             ("OUT_DIR", root / "ledger")):
             old = getattr(ledger, attr)
             setattr(ledger, attr, value)
@@ -121,6 +133,78 @@ class TestBuilding(Base):
         a, _ = ledger.analyse()
         b, _ = ledger.analyse()
         self.assertEqual(len(a), len(b))
+
+
+class TestTheCollectionBand(Base):
+    """Which strike range the chain behind a window was collected over. A
+    variance swap rate is only as complete as the strikes behind it, so
+    windows priced under different bands are different quantities - and the
+    ledger is exactly where they get pooled if nothing writes it down."""
+
+    def chains(self, rules):
+        """A CHAIN_DIR holding run.json for every snapshot, or none at all."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = pathlib.Path(tmp.name)
+        for name in ONE:
+            (root / name).mkdir(parents=True)
+            if rules is not None:
+                with open(root / name / "run.json", "w", encoding="utf-8") as f:
+                    json.dump({"rules": rules}, f)
+        old = ledger.CHAIN_DIR
+        ledger.CHAIN_DIR = root
+        self.addCleanup(setattr, ledger, "CHAIN_DIR", old)
+
+    def test_every_row_carries_the_band_it_was_priced_under(self):
+        self.build(ONE)
+        self.chains({"moves_below": 12, "moves_above": 6})
+        self.assertEqual({r["band"] for r in ledger.build()}, {"12/6"})
+
+    def test_a_narrow_band_is_recorded_as_itself(self):
+        """A 6/3 chain understates its rate by 0.5 to 1.1 vol points.
+        Recording the band verbatim is what lets a later study drop those
+        rows; normalising it away is what silently pools them."""
+        self.build(ONE)
+        self.chains({"moves_below": 6, "moves_above": 3})
+        self.assertEqual(ledger.build()[0]["band"], "6/3")
+
+    def test_falls_back_to_the_chain_summary_when_the_raw_chain_is_gone(self):
+        """Raw chains get cleared; the band still has to reach the ledger,
+        because a settled window that cannot say how wide it was collected
+        cannot be pooled with anything."""
+        self.build(ONE)
+        self.chains(None)
+        self.assertEqual(ledger.snapshot_band(next(iter(ONE)),
+                                              {"band": "20/10"}), "20/10")
+
+    def test_an_unknown_band_is_blank_rather_than_a_guess(self):
+        self.build(ONE)
+        self.chains(None)
+        self.assertEqual(ledger.snapshot_band(next(iter(ONE)), {}), "")
+
+    def test_a_narrow_band_row_is_left_out_of_the_settled_pool(self):
+        """Its priced leg is understated and its realized leg is read off
+        SPY closes and is fine, so pooling it compares a wrong number with a
+        right one. Excluded by the rule vrp already applies, not by a choice
+        made here."""
+        self.build(ONE)
+        self.chains({"moves_below": 6, "moves_above": 3})
+        rows = ledger.settle(ledger.build(),
+                             closes(dt.date(2026, 10, 1), 25, 0.004))
+        self.assertTrue([r for r in rows if r["status"] == "settled"],
+                        "the fixture has to settle something to be a test")
+        s = ledger.settled_summary(rows)
+        self.assertIsNone(s.get("all"), "nothing narrow-band should pool")
+        self.assertTrue(s["skipped"], "and the count has to be reported")
+
+    def test_a_wide_band_row_still_pools(self):
+        self.build(ONE)
+        self.chains({"moves_below": 12, "moves_above": 6})
+        rows = ledger.settle(ledger.build(),
+                             closes(dt.date(2026, 10, 1), 25, 0.004))
+        s = ledger.settled_summary(rows)
+        self.assertTrue(s["all"]["n"])
+        self.assertFalse(s["skipped"])
 
 
 class TestRealizedOverAWindow(unittest.TestCase):
@@ -247,6 +331,53 @@ class TestPooling(unittest.TestCase):
 
     def test_nothing_settled_is_none_rather_than_zero(self):
         self.assertIsNone(ledger.pooled([]))
+
+
+class TestMoversAcrossABandChange(Base):
+    """A wider chain carries more of the smile, so its rate sits higher for
+    reasons that are nothing to do with the market. Across a band change
+    every window would read as having moved the same way by about the width
+    of the difference - and this table reports nothing but differences."""
+
+    def snaps(self):
+        return {
+            "2026-10-13_1543": (0.150, [
+                window("2026-11-13", "2026-11-20", 0.1700, sessions=5)]),
+            "2026-10-20_1543": (0.168, [
+                window("2026-11-13", "2026-11-20", 0.1851, sessions=5)]),
+        }
+
+    def bands(self, mapping):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = pathlib.Path(tmp.name)
+        for name, rules in mapping.items():
+            (root / name).mkdir(parents=True)
+            with open(root / name / "run.json", "w", encoding="utf-8") as f:
+                json.dump({"rules": rules}, f)
+        old = ledger.CHAIN_DIR
+        ledger.CHAIN_DIR = root
+        self.addCleanup(setattr, ledger, "CHAIN_DIR", old)
+
+    def test_the_same_band_a_week_apart_compares_normally(self):
+        self.build(self.snaps())
+        wide = {"moves_below": 12, "moves_above": 6}
+        self.bands({"2026-10-13_1543": wide, "2026-10-20_1543": wide})
+        moved, newest, then = ledger.movers(ledger.build())
+        self.assertEqual(then, "2026-10-13_1543")
+        self.assertEqual(len(moved), 1)
+
+    def test_a_band_change_is_not_a_move(self):
+        """The older snapshot is the only candidate, and it was collected
+        differently, so there is no comparison to make - better than one
+        reporting +1.51p of repricing that is really the extra smile."""
+        self.build(self.snaps())
+        self.bands({"2026-10-13_1543": {"moves_below": 6, "moves_above": 3},
+                    "2026-10-20_1543": {"moves_below": 12, "moves_above": 6}})
+        moved, newest, then = ledger.movers(ledger.build())
+        self.assertEqual(newest, "2026-10-20_1543")
+        self.assertIsNone(then)
+        self.assertEqual(moved, [])
 
 
 class TestMovers(Base):

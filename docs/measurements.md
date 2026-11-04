@@ -1230,3 +1230,83 @@ to expiry - the opposite sign to the worry, and explained by strike count
 rising with tenor at +0.69. Longer-dated expiries are better listed, so they
 converge better. Those four shared a strike count at increasing tenor; the
 pattern was theirs, not the metric's.
+
+**The ledger was ignoring a rule it already had (2026-11-03).** `vrp` has
+refused narrow-band chains since long before any of this, on the measurement
+that they understate the rate by 0.5 to 1.1 vol points - `converged_moves:
+12`. The ledger had no idea what band anything came from, so its settled pool
+mixed 33 readings off 6/3 chains with 34 off chains wide enough to carry a
+rate. That is a defect, not a finding. The bias was known and written down
+before the ledger existed; the ledger simply never asked.
+
+Fixed by applying the rule that was already there rather than choosing a new
+one. Every window records its band, read from run.json and falling back to
+the chain summary once a raw chain is cleared. `settled_summary` pools only
+converged bands and prints the count it left out. `movers` will not pair two
+snapshots collected differently, because a wider chain carries more of the
+smile and across a band change every window reads as having moved the same
+way by about the width of the difference.
+
+**The ratio change is not the evidence for this.** Pooled across bands the
+settled ratio read 0.879; converged-only it reads 0.910. Treating that gap as
+the collection bias would be wrong:
+
+| | priced | realized | ratio | n |
+|---|---|---|---|---|
+| all bands pooled | 14.34% | 12.61% | 0.879 | 67 |
+| converged only | 15.30% | 13.92% | 0.910 | 34 |
+| 6/3 only | 13.59% | 11.44% | 0.842 | 33 |
+
+6/3 is lower on *both* legs, and the realized leg is computed from SPY closes
+and has nothing to do with how the chain was collected. So most of that gap
+is a calmer late September and mid October, not an artefact of the band. Band
+and period are confounded in this sample and nothing here separates them.
+
+**And the exclusion is wider than what has been established.** The measured
+bias is on the integrated variance LEVEL. A forward window is a difference of
+two levels, so whether the bias survives differencing depends on how it
+varies with tenor - constant in vol points and it mostly passes through,
+growing or shrinking and it partly cancels. That has not been measured, so
+"a 6/3 window's priced leg is understated" does not follow from "a 6/3 level
+is understated", and the pooled ratio is not required to move in any
+particular direction. These rows are out because their inputs are known
+wrong and the effect on the difference is unknown.
+
+It is settleable on one chain with no period confound: truncate a 12/6 grid
+to the strikes 6/3 would have collected, re-integrate, and compare the levels
+and the forward windows side by side. Until then the exclusion is a
+precaution, not a correction.
+
+The firm-vs-marginal comparison above is void rather than weakened either
+way, since about half its rows are ones this rule now refuses. It has to be
+re-run.
+
+**Three questions, not one.** They have different requirements and conflating
+them is what produced the overreach above.
+
+*What did the market price, and what did SPY realize?* The band touches the
+priced leg only; the realized leg is SPY closes and is immune. So narrow-band
+snapshots stay in the ledger as history and only their priced-versus-realized
+pairs leave the headline.
+
+*Did the market reprice the same window between two snapshots?* Stricter.
+12/6 and 20/10 both qualify for settlement, but a switch between them is no
+basis for claiming a move, so `movers` requires the same band and prints the
+real interval it compared over rather than assuming a week. Eligible
+endpoints can be compared; the path between them cannot be reconstructed.
+
+*Did we observe enough to identify this particular window?* The band says how
+widely the collector looked, not what was quoted - 2026-11-05 was collected
+under 12/6, which asked for strikes down to 605, and the chain stopped at
+700. Identification is `edge_margin` and `spans_dropped`, not `band`. And a
+block is a correct reading of its own wider interval, silent only on the
+split inside it: match it to that interval rather than discounting it.
+Likewise in the pivot, one window read on many dates is still one reading -
+the 38 settled readings that survive the band rule are 19 distinct windows.
+
+**What the band does not explain.** Drop rates run the wrong way for a simple
+band story - 18.1% under 12/6 against 5.4% under 6/3 - and the dropped
+expiries cluster at 10 to 14 days to expiry under every band, which is where
+SPY lists a weekly or daily that has not yet accumulated strikes. Across ten
+snapshots, three bands and six weeks, band and calendar cannot be separated.
+Recorded as unresolved.

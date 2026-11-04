@@ -214,10 +214,16 @@ def forward_windows(rows, dropped=()):
 
     `dropped` is what load() refused, and it matters here rather than only in
     a one-line notice: an expiry removed from the term structure does not
-    leave a hole, it leaves a WIDER window, silently spanning ground the
-    chain could not resolve. A window carrying spans_dropped > 0 is a block
-    standing in for sessions nobody priced separately, and it is the reason
-    a five-session window can sit where five one-session windows belong."""
+    leave a hole, it leaves a WIDER window, and nothing in the output says
+    so. It is the reason a five-session window can sit where five
+    one-session windows belong.
+
+    A block is not a worse reading, it is a reading of something else. Both
+    its endpoint totals are sound, so it prices its own interval correctly;
+    what it cannot say is how that variance splits across the expiries
+    inside it. So spans_dropped is a matching instruction, not a demotion -
+    compare a block against the same interval and leave the finer split
+    unknown, rather than discounting it against a one-session window."""
     gone = sorted(d[0] for d in dropped if isinstance(d, (list, tuple)) and d)
     out = []
     for a, b in zip(rows, rows[1:]):
@@ -373,8 +379,12 @@ def report(snapshot, rows, windows, curve, dest, dropped=()):
             print(f"    +{n:.0f} {w['from_expiry'][5:]} to {w['to_expiry'][5:]} "
                   f"stands in for {n:.0f} {word} left out above. A dropped "
                   f"expiry does not")
-            print(f"      leave a hole, it widens its neighbour - so this is "
-                  f"a block, not a resolved window.")
+            print(f"      leave a hole, it widens its neighbour. Both ends "
+                  f"are sound, so this reads")
+            print(f"      its own interval correctly - what is unknown is how "
+                  f"the variance splits")
+            print(f"      inside it. Compare it to the same interval, not to "
+                  f"a one-session window.")
 
     print()
     print("  constant maturity, interpolated on the session clock")
