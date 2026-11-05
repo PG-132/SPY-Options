@@ -1262,21 +1262,33 @@ and has nothing to do with how the chain was collected. So most of that gap
 is a calmer late September and mid October, not an artefact of the band. Band
 and period are confounded in this sample and nothing here separates them.
 
-**Does the level bias survive differencing?** Mostly yes, and it follows from
-how the band is built rather than needing a new measurement. `band_pct`
-reaches `moves * iv * sqrt(dte/365)`, so the band is sqrt(T)-scaled and cuts
-off about the same fraction of the distribution at every tenor. That makes
-the level understatement roughly constant in VOL POINTS across tenor. If vol
-is understated by d everywhere, each total's variance shortfall is about
-2*vol*d*T, and differencing two of them leaves about 2*vol*d - so the forward
-vol is understated by about d, the same as the level. It passes through at
-roughly full size rather than cancelling. A band of fixed dollar width would
-behave the opposite way.
+**Does the level bias survive differencing?** Yes, but smaller at the long
+end. The first version of this entry derived the answer instead of reading
+the table and got it wrong. `band_pct` reaches `moves * iv * sqrt(dte/365)`,
+so the band is sqrt(T)-scaled, and from that alone the shortfall should cut
+the same fraction of the distribution at every tenor and pass through a
+difference at full size. The 2026-10-15 measurement says otherwise: 1.06,
+0.89, 0.80 and 0.52 vol points at 1, 8, 15 and 29 days. The band is
+sqrt(T)-scaled; the listed strike range is not. At 1 day 6 moves is 3.8% of
+spot and the chain runs far past it, so the cut discards a lot of quoted
+material; at 29 days 6 moves is 20.6%, already near the end of what SPY
+lists, so little is left to discard. That is the same `min(band, what
+exists)` point made earlier in this entry.
 
-So 6/3's 0.5 to 1.1 points on levels is 0.5 to 1.1 points on windows, and the
-exclusion is a correction rather than a precaution. What does NOT follow is
-any particular direction for the pooled realized/priced ratio, since the
-realized leg moves with the market and dominated the 0.879 to 0.910 gap.
+Differencing those four levels gives 0.88, 0.71 and 0.25 vol points on the
+three windows between them. Every one is understated, because shortfall x T
+rises with tenor (1.05, 7.2, 12.0, 15.1 point-days); had it fallen faster
+than 1/T a window could have come out overstated. So the exclusion is a
+correction rather than a precaution, but the correction is about 0.9 points
+near and 0.25 far, not the level's full size. It is one snapshot and four
+expiries, and these are window figures computed from a level table rather
+than measured on windows; at 1 day the full-chain reference was itself still
+gaining +0.18 at 20 moves, so 1.06 is a floor. The clean version is to
+truncate a raw 12/6 chain to 6/3, re-integrate and compare windows.
+
+What does NOT follow is any particular direction for the pooled
+realized/priced ratio, since the realized leg moves with the market and
+dominated the 0.879 to 0.910 gap.
 
 The localized case is worse and was measured directly: one thin expiry inside
 a wide chain shifts its own total while its neighbours do not, so the window

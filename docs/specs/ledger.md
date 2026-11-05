@@ -47,5 +47,4 @@ Read the surface across many snapshots: three history views, and a ledger of eve
 
 ## Gaps
 
-- Why a 6/3 shortfall survives into windows is explained by an argument that conflicts with the 2026-10-15 measurement. See A-001.
 - `history.py` keeps its own copy of the threshold 12 (`CONVERGED_MOVES`) instead of reading `vrp.CONFIG`. See A-009.

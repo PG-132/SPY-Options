@@ -10,14 +10,6 @@ Opened 2026-11-04, during knowledge-base setup. IDs are never reused.
 
 ## Questions about the code
 
-### A-001 · LEDG-015 · Medium · The 6/3 band shortfall argument
-
-**Assumed:** excluding 6/3 rows from the settled pool (commit `1716f0e`) is right, and only the explanation added in `3506ff6` needs correcting.
-
-**Why:** `3506ff6` says the band's understatement is "roughly constant in vol points across tenor", so it carries into forward windows "at full size": 0.5 to 1.1 points on levels is 0.5 to 1.1 points on windows. The 2026-10-15 measurement (measurements.md, "Widening the collection band") shows it isn't constant. It shrinks with tenor: 1.06, 0.89, 0.80 and 0.52 points at 1, 8, 15 and 29 days. Run through the windows, the same table gives an understatement of about 0.88 (1 to 8 days), 0.71 (8 to 15) and 0.25 (15 to 29), on both calendar and session clocks. That's an agent's arithmetic on that 4-row table, not a new measurement. Every window is still understated, in the same direction, so the exclusion holds. But the bias doesn't pass through at full size, and the "it follows from how the band is built" argument misses that a fixed number of standard deviations cuts more at short tenors.
-
-**Question:** should the explanation in `ledger.settled_summary()`, the skipped-rows message in `ledger.report()`, and the 2026-11-02 measurements.md entry say "survives, shrinking with tenor, about 0.9 near and 0.25 far" instead? And do you want the proper version run on a raw 12/6 chain (truncate to 6/3, re-integrate, compare windows)?
-
 ### A-002 · LEDG-016, LEDG-017 · Low · Unknown-band rows
 
 **Assumed:** two edge cases are unintended, but rare enough to leave alone for now.

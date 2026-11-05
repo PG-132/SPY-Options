@@ -16,11 +16,11 @@ The measuring pipeline is built and in daily use: snap, iv, surface, term, conte
 
 - `snap`, `plan`, `daily`, `prices` and `vrp` were not run: the Webull SDK and `yfinance` aren't installed on the setup machine, and `data/` isn't in the repository.
 - The specs were written from module docstrings, CONFIG blocks, test names and selected function bodies. Coverage per file is in [architecture.md](architecture.md) "Inspection coverage".
-- The A-001 window figures are an agent's arithmetic on a published 4-row table, not a re-run on raw chains.
+- The window figures in the 2026-11-02 measurements.md entry are arithmetic on a published 4-row level table, not a measurement on windows.
 
 ## Behaviors to confirm
 
-All of them are in [assumptions.md](assumptions.md), most consequential first: A-003 (1pm-close expiries priced to 16:00), A-001 (the 6/3 shortfall explanation), A-004 (the chooser), A-012 (how intent was read). The corrections an agent made are A-010, A-011, A-013 and A-014.
+All of them are in [assumptions.md](assumptions.md), most consequential first: A-003 (1pm-close expiries priced to 16:00), A-004 (the chooser), A-012 (how intent was read). The corrections an agent made are A-010, A-011, A-013 and A-014.
 
 ## Open questions
 
@@ -34,11 +34,13 @@ Not permission to act; do these when asked.
 1. Owner works through [assumptions.md](assumptions.md), starting with A-003: the 2026-11-27 expiry is already in the chain.
 2. Owner decides whether the chooser ([changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md)) or the delta-hedged trade is the next build.
 3. Re-run the band-shortfall check on a month of dailies under one band, as the 2026-11-02 measurements.md entry plans.
-4. Before 2027 ends, extend `vol.HOLIDAYS` and `vol.HALF_DAYS` from NYSE's calendar (2028 is already published).
-5. When VIX is materially higher, capture a chain and re-run the residual sign-flip test (integrity.md item 4).
+4. Measure the 6/3 shortfall on windows directly: take a raw 12/6 chain, truncate it to 6/3, re-integrate and compare windows. Replaces arithmetic on a level table (A-001).
+5. Before 2027 ends, extend `vol.HOLIDAYS` and `vol.HALF_DAYS` from NYSE's calendar (2028 is already published).
+6. When VIX is materially higher, capture a chain and re-run the residual sign-flip test (integrity.md item 4).
 
 ## History
 
+- 2026-11-04: A-001 resolved: yes, the explanation was wrong. `ledger.py` and the 2026-11-02 measurements.md entry now say the shortfall shrinks with tenor (0.88, 0.71, 0.25 vol points on the three windows) and name the mechanism: the band is sqrt(T)-scaled, the listed strike range is not. The 6/3 exclusion itself is unchanged. Band history corrected in `collect.py` and context.md (6/3 through 10-13, one 20/10 snapshot on 10-15, 12/6 from 10-20), the stale `(1-30 days)` in `collect.anchor_iv` fixed, and the owner's git workflow added to AGENTS.md.
 - 2026-11-04: knowledge base and spec-driven workflow added on branch `sdd` after merging `main` at `3506ff6`. Stale text corrected in the `collect.py`, `surface.py`, `vrp.py` and `app.py` docstrings, a `prices.py` comment, concepts.md, integrity.md item 1 and data/README.md (A-010, A-011, A-013, A-014). No logic changed. Proposed to `main` as a pull request from `sdd`.
 - 2026-11-04: `3506ff6` (owner): the band shortfall is stated as surviving differencing; questioned in A-001.
 - 2026-11-03: `1716f0e`, `a99a4c3` (owner): ledger records the band per window; firm/marginal label replaced by the raw margin.

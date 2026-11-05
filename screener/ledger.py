@@ -587,14 +587,16 @@ def settled_summary(rows):
     leaving the choice to whoever reads this would just be a free
     parameter: the band that gives the nicer ratio.
 
-    A tight band understates the integrated variance LEVEL by 0.5 to 1.1
-    vol points, and that survives differencing. The band is sqrt(T)-scaled,
-    so it cuts off about the same fraction of the distribution at every
-    tenor and the understatement is roughly constant in vol points; a
-    window differencing two such totals inherits it at close to full size.
-    The realized leg is read from SPY closes and cannot be affected either
-    way, so pooling these rows compares a low priced leg against an
-    untouched realized one.
+    A tight band understates the integrated variance LEVEL, and that
+    survives differencing. The shortfall shrinks with tenor - 1.06, 0.89,
+    0.80 and 0.52 vol points at 1, 8, 15 and 29 days on 2026-10-15 -
+    because the band is sqrt(T)-scaled and the listed strike range is not,
+    so a 6-move cut sits deep inside a 1-day chain and near the end of a
+    29-day one. Differenced into windows that is 0.88, 0.71 and 0.25
+    points: every window understated, since shortfall x T still rises with
+    tenor, but not by the level's full size. The realized leg is read from
+    SPY closes and cannot be affected either way, so pooling these rows
+    compares a low priced leg against an untouched realized one.
 
     What does NOT follow is any direction for the pooled ratio: the
     realized leg moves with the market, and that is what drove the gap
@@ -781,10 +783,10 @@ def report(rows, names):
         if s.get("skipped"):
             print(f"    {s['skipped']} more closed readings are left out: "
                   f"collected under a band too")
-            print(f"      narrow to carry a rate. The band is sqrt(T)-scaled, "
-                  f"so the shortfall is")
-            print(f"      near constant in vol points and a window inherits "
-                  f"most of it.")
+            print(f"      narrow to carry a rate. The shortfall shrinks with "
+                  f"tenor, about 0.9 vol")
+            print(f"      points on a near window and 0.25 on a far one, "
+                  f"understated either way.")
 
     try:
         shown = OUT_DIR.relative_to(ROOT)

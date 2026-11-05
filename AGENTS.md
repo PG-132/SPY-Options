@@ -77,7 +77,7 @@ Update this table whenever a command changes or you run one with a new result.
 - Tests: `tests/test_<module>.py`, `unittest`, offline, with test names written as sentences that state the behavior (`test_a_band_change_is_not_a_move`). Fixtures write to `tempfile.TemporaryDirectory()` and must never read the real `data/` (see `tests/test_ledger.py`).
 - Raw snapshots in `data/chains/` are never modified. Every derived number must be reproducible from them. `data/` is not committed.
 - Numbers carry error bars. Constants come from measurements, not choice. The standing rules at the end of [docs/integrity.md](docs/integrity.md) are hard rules.
-- Commit messages: lowercase, no prefix, say what changed and why (`git log`).
+- Git: the owner pushes. Commit only when he says he is about to, one commit per change, never several chained together, and show him the message first since he usually rewrites it. Messages are lowercase, no prefix, one plain line saying what changed and why (`git log`), with a body only when the change is substantial. No `Co-authored-by` trailer unless he asks.
 - When you change a `CONFIG` constant, add a dated entry to docs/measurements.md saying what measurement produced the new value, and update the comment beside the constant.
 - When you add an `app.py` command, also update the `app.py` docstring, the README's "Running it" list, and `cmd_daily()` if it reads the newest snapshot.
 - When you add or rename an output column, update the module's `*_COLS` list, its tests, and docs/concepts.md if the column needs explaining.

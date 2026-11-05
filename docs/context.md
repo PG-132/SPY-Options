@@ -43,7 +43,7 @@ All **Decided** by the owner, as recorded in commits and docs. Detail lives in t
 | 2026-09-24 | Read IVs from the out-of-the-money side only | Tighter quotes; avoids American early-exercise premium | `screener/vol.py` docstring |
 | 2026-10-07 | Smile shape: hyperbola + quadratic + cubic in IV, weighted 1/band^2 | Cubic and SVI both failed the sign-flip test | measurements.md "Two smile shapes that failed" |
 | 2026-10-10 | Forward from parity: gate pairs on width asymmetry, average the tightest survivors 1/width^2 | Per-pair forwards slope with asymmetry, a bias averaging can't cure | measurements.md "Where the forward comes from" |
-| 2026-10-15 | Collection band widened from 6/3 to 12 moves below, 6 above | 6/3 understated the variance-swap rate by 0.5 to 1.1 points | measurements.md "Widening the collection band"; commit `d10473b` |
+| 2026-10-15 | Collection band widened from 6/3 to 12 moves below, 6 above; one 20/10 snapshot on 10-15, 12/6 from 10-20 | 6/3 understated the variance-swap LEVEL by 0.5 to 1.1 points, most of it at the short end | measurements.md "Widening the collection band"; commit `d10473b` |
 | 2026-10-16 | Strip the term structure from the variance-swap rate rather than the ATM level | Same quantity as VIX; ATM runs about 0.80 of it | measurements.md "Wiring the integral into the time axis" |
 | 2026-10-20 | `max_dte` raised from 30 to 37 | The chain must bracket 30 days, as VIX's 23-37 day window does | `screener/collect.py` CONFIG; commit `67fe417` |
 | 2026-10-30 | A 1pm close counts 0.5 session on the variance clock | Measured on 33 day-after-Thanksgiving sessions | measurements.md "What a 1pm close is worth" |

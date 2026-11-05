@@ -13,12 +13,13 @@ and are never printed.
 WHAT A SNAPSHOT CAPTURES
 -------------------------------------------------
 Every listed SPY expiry from 1 to 37 days out, calls and puts, at every strike
-from 12 expected moves below spot to 6 above (6/3 before 2026-10-15). One
-expected move is the at-the-money IV of the expiry closest to 30 days, times
-the square root of the time to each expiry, so the band widens and narrows as
-that IV moves. At 12% IV it reaches 41.3% below spot to 20.6% above at 30
-days, 19.9% to 10.0% at a week, and 7.5% to 3.8% for tomorrow - asked for,
-not always listed: the exchange may stop short of it.
+from 12 expected moves below spot to 6 above (6/3 through 2026-10-13, one
+20/10 snapshot on 10-15, 12/6 since 10-20). One expected move is the
+at-the-money IV of the expiry closest to 30 days, times the square root of
+the time to each expiry, so the band widens and narrows as that IV moves. At
+12% IV it reaches 41.3% below spot to 20.6% above at 30 days, 19.9% to 10.0%
+at a week, and 7.5% to 3.8% for tomorrow - asked for, not always listed: the
+exchange may stop short of it.
 
 The sides differ because the skew does. SPY puts stay bid and keep real delta
 far out of the money, since people pay for crash protection; calls stop being
@@ -275,7 +276,7 @@ def quote_batch(client, symbols, rejected):
 
 def anchor_iv(client, spot, today):
     """The IV that sizes every band: Webull's IV for the at-the-money call and
-    put of the recorded expiry (1-30 days) closest to anchor_dte, averaged.
+    put of the recorded expiry (1-37 days) closest to anchor_dte, averaged.
     Costs one small listing and one quote request. If Webull gives no IV it
     falls back, and run.json says so. Returns a dict recording where the
     number came from."""
