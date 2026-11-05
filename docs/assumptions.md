@@ -18,13 +18,15 @@ Opened 2026-11-04, during knowledge-base setup. IDs are never reused.
 
 **Question:** fix both (count unknown separately; refuse to compare when the newest band is unknown), or leave them?
 
-### A-003 · VOL-008, CTX-003 · High · Expiries that close at 1pm
+### A-003 · VOL-008 · High · The pricing clock on expiries that close at 1pm
 
-**Assumed:** pricing time ending at 16:00 on a 1pm-close expiry is an oversight, not a choice.
+**Assumed:** ending time to expiry at 16:00 on a 1pm-close expiry is an oversight, not a choice.
 
-**Why:** `vol.one_expiry()` always ends time to expiry at 16:00 ET. NYSE's calendar has 1pm closes on 2026-11-27 and 2026-12-24 (1:15pm for eligible options), and SPY lists daily expiries on both dates. 11-27 is already inside the 37-day chain; 12-24 enters it around 11-17. The extra three hours make T too long and IV too low. An agent's rough estimate: about 0.04 vol points three weeks out, about half a point when snapped on 11-25 for the 11-27 expiry. `prices.session_close()` already knows the 13:00 close; `vol.py` doesn't use it. Separately, `context.py` measures the snapshot's own session against 16:00 on a half day; its own comment calls that "not modelled yet".
+**Why:** `vol.one_expiry()` always ends time to expiry at 16:00 ET. NYSE's calendar has 1pm closes on 2026-11-27 and 2026-12-24 (1:15pm for eligible options), and SPY lists daily expiries on both dates. The extra three hours make that expiry's IVs read low: about 0.5 vol points on 11-27 and 1 point on 12-24 in their last day. Nothing built from total variance sees it (windows, constant maturity, context, ledger, vrp), so the error stays in that one expiry's annualized numbers. Mechanism and sizes are in [specs/vol.md](specs/vol.md) under "Gaps". `prices.session_close()` already knows the 13:00 close; `vol.py` doesn't use it.
 
-**Question:** should the pricing clock end at 13:00 on `HALF_DAYS` expiries (or 13:15, if SPY options trade the extra 15 minutes), and should `context.py`'s session fraction use the same close?
+**Owner, 2026-11-05:** a separate, lower-priority decision. The other half of this entry, `context.py` measuring the snapshot's own session against 16:00 on a half day, was fixed the same day (CTX-003).
+
+**Question:** end the pricing clock at 13:00 on `HALF_DAYS` expiries, or keep 16:00 as a documented convention? The agent's suggestion if it changes: 13:00 rather than 13:15, since variance builds only while SPY itself trades.
 
 ### A-004 · CHOOSE-001 · Medium · The structure chooser
 

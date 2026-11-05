@@ -61,6 +61,8 @@ import sys
 import time
 from zoneinfo import ZoneInfo
 
+from . import prices
+
 # ---------------------------------------------------------------------------
 # Capture rules.
 # ---------------------------------------------------------------------------
@@ -134,9 +136,12 @@ def now_et():
 
 
 def market_open(t):
-    """Regular session, Mon-Fri 9:30-16:00 ET. Holidays aren't known here;
-    on a holiday the quotes come back stale and the quote-age check says so."""
-    return t.weekday() < 5 and dt.time(9, 30) <= t.time() < dt.time(16, 0)
+    """Regular session, Mon-Fri from 9:30 ET to the close: 16:00, or 13:00 on
+    the early closes (prices.session_close), when the routine snaps at 12:45.
+    Holidays aren't checked here; on a holiday the quotes come back stale and
+    the quote-age check says so."""
+    return (t.weekday() < 5
+            and dt.time(9, 30) <= t.time() < prices.session_close(t.date()))
 
 
 def band_pct(dte, iv, side):

@@ -18,7 +18,7 @@ Take one snapshot of the SPY option chain from Webull and store it raw, so every
 | COLLECT-008 | Stores raw fields only; Webull's IV and Greeks are renamed `vendor_*` | Intended | options.csv carries `vendor_iv` etc., never `iv` | `test_rows_keep_raw_fields_and_rename_webull_greeks` |
 | COLLECT-009 | Writes `data/chains/YYYY-MM-DD_HHMM/` (Eastern time) with options.csv, spot.csv, run.json; run.json records the rules used (including `moves_below`/`moves_above`), asked vs received, and warnings | Intended | All three files exist after `snap` | `test_one_pass_writes_a_complete_run_folder` |
 | COLLECT-010 | Suspicious values are warnings, not caps: anchor IV outside 5-60%, band edge still carrying 1% delta, median quote older than 15 min | Intended | Each case adds a warning and the snapshot is still written | `test_edges_that_still_carry_delta_are_flagged`, `test_implausible_anchor_iv_is_flagged` |
-| COLLECT-011 | `snap` warns outside regular hours (Mon-Fri 9:30-16:00 ET); it doesn't know holidays | Observed | Warning printed after 16:00 | `test_market_hours`; README.md |
+| COLLECT-011 | `snap` warns outside regular hours: Mon-Fri from 9:30 ET to the close, which is 16:00, or 13:00 on the early closes (`prices.session_close`). It doesn't know holidays | Intended for the early close (user, 2026-11-05); Observed otherwise | Warning after 16:00, and after 13:00 on 2026-11-27 and 2026-12-24 | `test_market_hours`, `test_market_hours_end_at_1pm_on_an_early_close`; README.md |
 | COLLECT-012 | `plan` shows what a snapshot would pull and saves nothing | Intended | No files written | `app.py` docstring |
 
 ## Interfaces

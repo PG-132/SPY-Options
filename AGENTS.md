@@ -59,7 +59,7 @@ You maintain these files as part of normal work. No special tool or skill is nee
 
 | Purpose | Command | Source | Last verified |
 | --- | --- | --- | --- |
-| Test (offline, fake Webull) | `python -m unittest discover tests` | README.md | 2026-11-04: 256 tests passed, Python 3.13.7 |
+| Test (offline, fake Webull) | `python -m unittest discover tests` | README.md | 2026-11-05: 263 tests passed, Python 3.14.3 (owner's machine). 2026-11-04: 256 passed on 3.13.7 (setup machine) |
 | Daily run (snap + pipeline) | `python app.py daily` | app.py | not run (needs Webull SDK, keys, market hours) |
 | Plan a snapshot, read-only | `python app.py plan` | app.py | not run (needs Webull SDK and keys) |
 | One step on the newest snapshot | `python app.py iv\|surface\|term\|context\|history\|ledger` | app.py | not run (needs data/ from a snapshot) |
@@ -82,7 +82,7 @@ Update this table whenever a command changes or you run one with a new result.
 - When you add an `app.py` command, also update the `app.py` docstring, the README's "Running it" list, and `cmd_daily()` if it reads the newest snapshot.
 - When you add or rename an output column, update the module's `*_COLS` list, its tests, and docs/concepts.md if the column needs explaining.
 - When you touch time logic, test it in both EDT and EST (the 2026-11-01 entry in docs/measurements.md shows why).
-- `vol.HOLIDAYS` and `vol.HALF_DAYS` are the one exchange calendar, shared by `vol.py` and `prices.py`. They run to the end of 2027; extend both from NYSE's published calendar before then.
+- `vol.HOLIDAYS` and `vol.HALF_DAYS` are the one exchange calendar, shared by `vol.py` and `prices.py`, and by `context.py` and `collect.py` through `prices.session_close()`. Ask that function when trading ends; don't hard-code 16:00. They run to the end of 2027; extend both from NYSE's published calendar before then.
 - When an integrity item is checked, move it to "Handled, and why" in docs/integrity.md with the date and evidence.
 - When a paper trade closes, add its row to trades/README.md.
 

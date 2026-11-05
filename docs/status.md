@@ -1,6 +1,6 @@
 # Status
 
-As of 2026-11-04
+As of 2026-11-05
 
 ## Current state
 
@@ -9,6 +9,7 @@ The measuring pipeline is built and in daily use: snap, iv, surface, term, conte
 ## Completed
 
 - Pipeline modules and 256 offline tests: `python -m unittest discover tests` passed on 2026-11-04 (Python 3.13.7).
+- 1pm-close snapshots handled on 2026-11-05: `context.session_remaining` measures to 13:00 at the half-day weight, and `collect.market_open` ends at 13:00 on those days (CTX-003, COLLECT-011). 263 tests passed (Python 3.14.3); the six new half-day tests fail against the previous code.
 - Knowledge base set up on 2026-11-04: `AGENTS.md`, `CLAUDE.md`, this file, [assumptions.md](assumptions.md), [context.md](context.md), [architecture.md](architecture.md), [specs/](specs/README.md), [changes/](changes/2026-11-04-choosing.md).
 - Exchange calendar checked on 2026-11-04: `vol.HOLIDAYS` and `vol.HALF_DAYS` match NYSE's list for 2026 and 2027 exactly. **Sourced:** [NYSE Group Announces 2026, 2027 and 2028 Holiday and Early Closings Calendar](https://ir.theice.com/press/news-details/2025/NYSE-Group-Announces-2026-2027-and-2028-Holiday-and-Early-Closings-Calendar/default.aspx), released 2025-12-23, accessed 2026-11-04. Early closes are 1:00pm ET, 1:15pm for eligible options.
 
@@ -17,10 +18,11 @@ The measuring pipeline is built and in daily use: snap, iv, surface, term, conte
 - `snap`, `plan`, `daily`, `prices` and `vrp` were not run: the Webull SDK and `yfinance` aren't installed on the setup machine, and `data/` isn't in the repository.
 - The specs were written from module docstrings, CONFIG blocks, test names and selected function bodies. Coverage per file is in [architecture.md](architecture.md) "Inspection coverage".
 - The window figures in the 2026-11-02 measurements.md entry are arithmetic on a published 4-row level table, not a measurement on windows.
+- The 1pm-close handling (2026-11-05) is tested offline only. Its first live check is the 2026-11-27 12:45 snapshot: its `session_remaining` in `data/context/` should read about 0.036, and `snap` should give no market-closed warning.
 
 ## Behaviors to confirm
 
-All of them are in [assumptions.md](assumptions.md), most consequential first: A-003 (1pm-close expiries priced to 16:00), A-004 (the chooser), A-012 (how intent was read). The corrections an agent made are A-010, A-011, A-013 and A-014.
+All of them are in [assumptions.md](assumptions.md). Most consequential first: A-004 (the chooser), A-012 (how intent was read), and A-003 (1pm-close expiries priced to 16:00; narrowed on 2026-11-05 and deferred by the owner). The corrections an agent made are A-010, A-011, A-013 and A-014.
 
 ## Open questions
 
@@ -31,14 +33,17 @@ All of them are in [assumptions.md](assumptions.md), most consequential first: A
 
 Not permission to act; do these when asked.
 
-1. Owner works through [assumptions.md](assumptions.md), starting with A-003: the 2026-11-27 expiry is already in the chain.
-2. Owner decides whether the chooser ([changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md)) or the delta-hedged trade is the next build.
-3. Re-run the band-shortfall check on a month of dailies under one band, as the 2026-11-02 measurements.md entry plans.
-4. Measure the 6/3 shortfall on windows directly: take a raw 12/6 chain, truncate it to 6/3, re-integrate and compare windows. Replaces arithmetic on a level table (A-001).
-5. Before 2027 ends, extend `vol.HOLIDAYS` and `vol.HALF_DAYS` from NYSE's calendar (2028 is already published).
-6. When VIX is materially higher, capture a chain and re-run the residual sign-flip test (integrity.md item 4).
+1. Owner runs `python app.py daily` at 12:45 ET, not 15:45, on 2026-11-27 and 2026-12-24 (13:00 closes; see [context.md](context.md) Constraints).
+2. Owner works through [assumptions.md](assumptions.md), starting with A-004.
+3. Owner decides whether the chooser ([changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md)) or the delta-hedged trade is the next build.
+4. Re-run the band-shortfall check on a month of dailies under one band, as the 2026-11-02 measurements.md entry plans.
+5. Measure the 6/3 shortfall on windows directly: take a raw 12/6 chain, truncate it to 6/3, re-integrate and compare windows. Replaces arithmetic on a level table (A-001).
+6. Before 2027 ends, extend `vol.HOLIDAYS` and `vol.HALF_DAYS` from NYSE's calendar (2028 is already published).
+7. When VIX is materially higher, capture a chain and re-run the residual sign-flip test (integrity.md item 4).
 
 ## History
+
+- 2026-11-05: A-003 partly resolved, split in two. The snapshot half is resolved: the owner chose to snap at 12:45 ET on 1pm-close days rather than skip them, and `context.session_remaining` now measures to 13:00 at the half-day weight (measured to 16:00 it read half a session left at 12:45). `collect.market_open` ends at 13:00 on those days so a 15:45 run warns. CTX-003 moved from Gap to Intended; CTX-002 and COLLECT-011 updated. The pricing-clock half stays open as A-003, deferred by the owner. Found while sizing it: the bias stays in that expiry's annualized IVs and never reaches the windows, because `term.py` rebuilds total variance with the same T (specs/vol.md "Gaps"). This replaces A-003's earlier framing, which made it the most consequential open item.
 
 - 2026-11-04: A-001 resolved: yes, the explanation was wrong. `ledger.py` and the 2026-11-02 measurements.md entry now say the shortfall shrinks with tenor (0.88, 0.71, 0.25 vol points on the three windows) and name the mechanism: the band is sqrt(T)-scaled, the listed strike range is not. The 6/3 exclusion itself is unchanged. Band history corrected in `collect.py` and context.md (6/3 through 10-13, one 20/10 snapshot on 10-15, 12/6 from 10-20), the stale `(1-30 days)` in `collect.anchor_iv` fixed, and the owner's git workflow added to AGENTS.md.
 - 2026-11-04: knowledge base and spec-driven workflow added on branch `sdd` after merging `main` at `3506ff6`. Stale text corrected in the `collect.py`, `surface.py`, `vrp.py` and `app.py` docstrings, a `prices.py` comment, concepts.md, integrity.md item 1 and data/README.md (A-010, A-011, A-013, A-014). No logic changed. Proposed to `main` as a pull request from `sdd`.

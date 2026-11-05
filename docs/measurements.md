@@ -832,8 +832,14 @@ Applied to the six snapshots on disk, which were taken anywhere from 11:42 to
 0.829 to 0.845. The ledger rebuilds from context's output rather than
 appending, so one change corrected the whole history on the next run.
 
-Half-days remain uncorrected: a 13:00 close makes the fraction above
-overstated, and that is a separate dated gap.
+**Half-days, corrected 2026-11-05.** On a 1pm close the fraction runs over
+9:30-13:00 and is multiplied by the half-day weight (0.5, see "What a 1pm
+close is worth" below), because the session clock counts that whole day as
+half a session and the fraction extends that clock. Measured to 16:00, a
+12:45 snapshot on 2026-11-27 would have read 0.50 sessions left instead of
+0.036, and its front window to Monday about 17% low (arithmetic on the
+formula, not measured on a chain). On those days the routine snaps at 12:45
+(docs/context.md, Constraints).
 
 ## Resolution is not repricing (2026-10-25)
 

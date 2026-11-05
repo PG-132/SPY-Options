@@ -155,6 +155,17 @@ class TestRules(Base):
         self.assertFalse(collect.market_open(fri.replace(hour=9, minute=29)))
         self.assertFalse(collect.market_open(dt.datetime(2026, 9, 19, 12, tzinfo=collect.ET)))
 
+    def test_market_hours_end_at_1pm_on_an_early_close(self):
+        """The day after Thanksgiving closes at 13:00 and the routine snaps
+        at 12:45. A run at the usual 15:45 is after the close and has to say
+        so, rather than pass as open and lean on the quote-age check."""
+        fri = dt.datetime(2026, 11, 27, tzinfo=collect.ET)
+        self.assertTrue(collect.market_open(fri.replace(hour=12, minute=45)))
+        self.assertFalse(collect.market_open(fri.replace(hour=13, minute=0)))
+        self.assertFalse(collect.market_open(fri.replace(hour=15, minute=45)))
+        monday = dt.datetime(2026, 11, 30, 15, 45, tzinfo=collect.ET)
+        self.assertTrue(collect.market_open(monday), "an ordinary EST day runs to 16:00")
+
     def test_only_standard_spy_series(self):
         good = {"symbol": "SPY260925C00764000", "def_type": "STANDARD", "root_symbol": "SPY"}
         self.assertTrue(collect.is_standard(good))

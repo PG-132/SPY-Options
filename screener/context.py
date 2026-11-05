@@ -92,7 +92,7 @@ import math
 import pathlib
 import sys
 
-from screener import prices, term, vrp
+from screener import prices, term, vol, vrp
 
 CONFIG = {
     "sessions_per_year": 252,
@@ -100,11 +100,9 @@ CONFIG = {
     # variance swap rate at 30 days and so is ours, which is the only reason
     # the comparison means anything.
     "benchmark": "^VIX",
-    # Regular US equity hours in minutes past midnight ET. Half-days close
-    # at 13:00 and are not modelled yet; on one the fraction below is
-    # overstated, which is a known and dated gap.
+    # The regular open in minutes past midnight ET. The close is not kept
+    # here: prices.session_close knows it is 13:00 on the early closes.
     "open_minute": 9 * 60 + 30,
-    "close_minute": 16 * 60,
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -138,8 +136,18 @@ SPOT = "spot"
 # ---------------------------------------------------------------------------
 
 def session_remaining(snapshot):
-    """How much of the snapshot's own trading session was still to run, as a
-    fraction, from the timestamp the collector wrote.
+    """How much of the snapshot's own trading session was still to run, in
+    sessions on the variance clock, from the timestamp the collector wrote.
+
+    On a regular day that is the fraction of 9:30-16:00 still ahead. On a
+    1pm close it is the fraction of 9:30-13:00 still ahead, times the half
+    day's own weight, because vol.sessions_between counts that whole day as
+    vol.CONFIG["half_day"] of a session and this number extends its clock.
+    Measured against 16:00 instead, a 12:45 snapshot on 2026-11-27 would
+    read half a session left with fifteen minutes to go: the front window to
+    Monday would be divided by 1.5 sessions instead of 1.04, and its vol
+    would read about 17% low. Inside the day the split is by clock time, as
+    it is on a regular day.
 
     Falls back to the folder name, which carries the time to the minute, and
     to zero if neither can be read - zero being the assumption that costs
@@ -158,8 +166,12 @@ def session_remaining(snapshot):
         except ValueError:
             return 0.0
     minutes = stamp.hour * 60 + stamp.minute + stamp.second / 60.0
-    span = CONFIG["close_minute"] - CONFIG["open_minute"]
-    return min(1.0, max(0.0, (CONFIG["close_minute"] - minutes) / span))
+    close = prices.session_close(stamp.date())
+    close_minute = close.hour * 60 + close.minute
+    span = close_minute - CONFIG["open_minute"]
+    left = min(1.0, max(0.0, (close_minute - minutes) / span))
+    weight = vol.CONFIG["half_day"] if stamp.date() in vol.HALF_DAYS else 1.0
+    return left * weight
 
 
 def with_spot(rows, remaining=0.0):

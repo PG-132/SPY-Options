@@ -21,7 +21,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from screener import context  # noqa: E402
+from screener import context, vol  # noqa: E402
 
 YEAR = 252.0
 
@@ -150,7 +150,9 @@ class TestTheSnapshotsOwnSession(unittest.TestCase):
             self.assertAlmostEqual(w["vs_rest"], 0.0, places=10)
 
 
-class TestReadingTheSnapshotTime(unittest.TestCase):
+class SnapshotFolders(unittest.TestCase):
+    """Snapshot folders in a temporary directory, never the real data/."""
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -165,6 +167,8 @@ class TestReadingTheSnapshotTime(unittest.TestCase):
         (folder / "run.json").write_text('{"started_et": "%s"}' % started,
                                          encoding="utf-8")
 
+
+class TestReadingTheSnapshotTime(SnapshotFolders):
     def test_reads_the_collectors_own_timestamp(self):
         self.write("2026-10-20_1543", "2026-10-20T14:30:00-04:00")
         self.assertAlmostEqual(context.session_remaining("2026-10-20_1543"),
@@ -188,6 +192,51 @@ class TestReadingTheSnapshotTime(unittest.TestCase):
         """Zero is the assumption that costs least: it is what a snapshot
         taken at the close would have had."""
         self.assertEqual(context.session_remaining("not-a-snapshot"), 0.0)
+
+    def test_an_ordinary_winter_day_still_runs_to_four(self):
+        """The other tests sit in EDT; this one is in EST, the clock the
+        early closes fall under."""
+        self.write("2026-11-30_1545", "2026-11-30T15:45:00-05:00")
+        self.assertAlmostEqual(context.session_remaining("2026-11-30_1545"),
+                               15 / 390, places=6)
+
+
+class TestTheSnapshotsOwnSessionOnA1pmClose(SnapshotFolders):
+    """On 2026-11-27 and 2026-12-24 the session runs 9:30-13:00 and the
+    variance clock counts the whole of it as vol.CONFIG["half_day"]. What is
+    left of it has to be in those units, or a 12:45 snapshot reads half a
+    session left with fifteen minutes to go. Every early close in the
+    calendar falls in EST, so there is no EDT case to pin."""
+
+    HALF = vol.CONFIG["half_day"]
+
+    def test_fifteen_minutes_before_a_1pm_close_is_fifteen_minutes(self):
+        self.write("2026-11-27_1245", "2026-11-27T12:45:00-05:00")
+        self.assertAlmostEqual(context.session_remaining("2026-11-27_1245"),
+                               15 / 210 * self.HALF, places=6)
+
+    def test_the_folder_name_knows_the_early_close_too(self):
+        self.assertAlmostEqual(context.session_remaining("2026-12-24_1245"),
+                               15 / 210 * self.HALF, places=6)
+
+    def test_after_a_1pm_close_nothing_is_left(self):
+        """The usual 15:45 run, on a day that closed at 13:00."""
+        self.write("2026-11-27_1545", "2026-11-27T15:45:00-05:00")
+        self.assertEqual(context.session_remaining("2026-11-27_1545"), 0.0)
+
+    def test_before_the_open_only_the_half_day_is_left(self):
+        self.write("2026-11-27_0800", "2026-11-27T08:00:00-05:00")
+        self.assertAlmostEqual(context.session_remaining("2026-11-27_0800"),
+                               self.HALF, places=12)
+
+    def test_the_front_window_is_divided_by_what_is_really_left(self):
+        """Monday's expiry is one session past the snapshot's close, so the
+        front window spans 1 + 15/210 x 0.5 sessions, not the 1.5 that a
+        16:00 close would give."""
+        self.write("2026-11-27_1245", "2026-11-27T12:45:00-05:00")
+        rem = context.session_remaining("2026-11-27_1245")
+        cut, _ = context.decompose(chain([(1, 0.12), (1, 0.14)]), remaining=rem)
+        self.assertAlmostEqual(cut[0]["sessions"], 1 + 15 / 210 * self.HALF)
 
 
 class TestAgainstTheRest(unittest.TestCase):

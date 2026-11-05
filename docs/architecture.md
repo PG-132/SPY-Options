@@ -4,7 +4,7 @@
 
 | Item | Version | Source |
 | --- | --- | --- |
-| Python | 3.13.7 on the machine used for setup; no minimum is declared | `python --version`, 2026-11-04 |
+| Python | 3.13.7 on the machine used for setup, 3.14.3 on the owner's machine; no minimum is declared | `python --version`, 2026-11-04 |
 | Standard library only for analysis | uses `zoneinfo`, so Python 3.9+ | imports in `screener/*.py` |
 | Webull OpenAPI Python SDK | not pinned; imported as `webull.core.client` and `webull.data.data_client` | `screener/collect.py` `make_client()` |
 | `yfinance` | not pinned | `screener/prices.py` |
@@ -37,7 +37,7 @@ There is no `requirements.txt` or `pyproject.toml` (A-008 in [assumptions.md](as
 
 ## Key flows
 
-**Daily pipeline** (`python app.py daily`, about 15:45 ET). Each step reads the newest output of the one before; a failure stops the run.
+**Daily pipeline** (`python app.py daily`, about 15:45 ET; 12:45 on 1pm-close days). Each step reads the newest output of the one before; a failure stops the run.
 
 ```text
 snap ──> iv ──> surface ──> term ──> context ──> ledger
@@ -95,12 +95,12 @@ None. It runs by hand on the owner's machine. There is no CI configuration in th
 | Area | Depth | Date | Notes |
 | --- | --- | --- | --- |
 | `app.py` | read in full | 2026-11-04 | |
-| `screener/collect.py` | docstring, CONFIG, function list | 2026-11-04 | Webull calls not traced |
+| `screener/collect.py` | docstring, CONFIG, function list; `market_open` and the `summarize` warnings read in full on 2026-11-05 | 2026-11-04 | Webull calls not traced |
 | `screener/pricing.py` | docstring, function list | 2026-11-04 | covered by frozen reference tests |
-| `screener/vol.py` | docstring, CONFIG, calendar, clocks, `one_expiry` start, `collected_band` | 2026-11-04 | `forward()` and `variance_swap()` bodies not traced |
+| `screener/vol.py` | docstring, CONFIG, calendar, clocks, `collected_band`; `one_expiry` and the `variance_swap` integral read in full on 2026-11-05 | 2026-11-04 | `forward()` body not traced |
 | `screener/surface.py` | docstring, CONFIG, gates | 2026-11-04 | fit internals sampled |
-| `screener/term.py` | docstring, CONFIG keys, half-day handling | 2026-11-04 | drop rule body not traced |
-| `screener/context.py` | docstring, CONFIG keys | 2026-11-04 | |
+| `screener/term.py` | docstring, CONFIG keys, half-day handling; how `load` builds total variance and how windows divide it, read 2026-11-05 | 2026-11-04 | drop rule body not traced |
+| `screener/context.py` | docstring, CONFIG keys; `session_remaining` and `with_spot` read in full on 2026-11-05 | 2026-11-04 | |
 | `screener/history.py` | docstring | 2026-11-04 | |
 | `screener/ledger.py` | docstring; band, convergence, movers filter, settled summary read in full | 2026-11-04 | roll-down and pivot bodies not traced |
 | `screener/prices.py`, `screener/vrp.py` | docstrings, CONFIG keys, `cmd_vrp` | 2026-11-04 | |

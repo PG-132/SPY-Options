@@ -36,8 +36,10 @@ Everything runs through `app.py`, from this folder:
 With no command (VS Code's Run button), `app.py` runs `plan`.
 
 It needs `WEBULL_APP_KEY` and `WEBULL_APP_SECRET` in the environment, plus
-Webull's OPRA subscription. Take snapshots during market hours: after 16:00 ET
-bid/ask go stale, and `snap` warns you.
+Webull's OPRA subscription. Take snapshots during market hours: after the close
+bid/ask go stale, and `snap` warns you. The close is 16:00 ET, but 13:00 on the
+early closes (the day after Thanksgiving, Christmas Eve), so on those days snap
+at 12:45.
 
 ## Layout
 

@@ -20,7 +20,8 @@ From [README.md](../README.md), labeled **Decided** (the owner wrote it):
 ## Constraints
 
 - Data comes from Webull (option chain, needs the OPRA subscription) and Yahoo via `yfinance` (daily closes). Webull gives no long price history, so realized volatility comes from Yahoo. (**Observed**, `screener/prices.py`)
-- Snapshots must be taken during market hours; after 16:00 ET bid/ask go stale. The daily routine runs at about 15:45 ET. (**Decided**, README.md, `app.py`)
+- Snapshots must be taken during market hours; after the close bid/ask go stale. The daily routine runs at about 15:45 ET. (**Decided**, README.md, `app.py`)
+- On the 1pm-close days in `vol.HALF_DAYS` (2026-11-27, 2026-12-24, 2027-11-26) the routine runs at 12:45 ET instead. The owner remembers this; `snap` warns if a run lands after 13:00. (**Decided**, user 2026-11-05)
 - Own data starts 2026-09-24. Every constant was set on a calm market (ATM IV near 13%); behavior in a selloff is untested. (**Observed**, docs/integrity.md item 4)
 
 ## Preferences
@@ -49,6 +50,8 @@ All **Decided** by the owner, as recorded in commits and docs. Detail lives in t
 | 2026-10-30 | A 1pm close counts 0.5 session on the variance clock | Measured on 33 day-after-Thanksgiving sessions | measurements.md "What a 1pm close is worth" |
 | 2026-11-01 | Never cache a bar for a session that hasn't closed; ET offset from zoneinfo | A partial bar understated range variance 7.3x; the EST switch would have broken the guard | measurements.md "What a partial bar costs" |
 | 2026-11-03 | Every ledger window records the band it was priced under; 6/3 rows stay out of pooled settlement stats and the mover table never compares across a band change | Rates from different bands are different quantities | commit `1716f0e`; [specs/ledger.md](specs/ledger.md) |
+| 2026-11-05 | On 1pm-close days, snap at 12:45 ET; the snapshot's leftover session runs to 13:00 and counts at the half-day weight | At 15:45 the quotes are 2¾ hours stale. Measured to 16:00, a 12:45 snapshot would read half a session left and its front window about 17% low | [specs/context.md](specs/context.md) CTX-003 |
+| 2026-11-05 | Defer the pricing clock on 1pm-close expiries as a separate, lower-priority decision; it stays at 16:00 until then | The bias stays in that expiry's annualized IVs and never reaches the windows | A-003 in [assumptions.md](assumptions.md); [specs/vol.md](specs/vol.md) "Gaps" |
 
 ## Rejected approaches
 
@@ -65,6 +68,7 @@ Each is written up in full in the linked entry; this is the index.
 | Whole-day time to expiry | 1.3 vol points off at 1 day | 2026-09-24 | measurements.md | never |
 | Half-day weight by clock time (0.538) or rounded to 0 | Clock time is right for the wrong reason; 0 is the worse error and divides by zero | 2026-10-30 | measurements.md "What a 1pm close is worth" | Christmas Eve or July 3 data shows a different weight |
 | Firm/marginal label on ledger windows | The split was void once narrow-band rows were refused; the raw margin is printed instead | 2026-11-03 | commit `a99a4c3`; measurements.md 2026-11-02 entry | a month of dailies under one band |
+| Skipping the snapshot on 1pm-close days | Loses the day's data point when a 12:45 snap and a small fix keep it | 2026-11-05 | [specs/context.md](specs/context.md) CTX-003 | the 12:45 snap proves hard to keep |
 | Freshness by fixed age ("four days is fresh") | Breaks on the first session after a long weekend | before 2026-11-01 | `screener/prices.py` docstring | never |
 
 ## Proposals and assumptions
