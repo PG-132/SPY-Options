@@ -23,8 +23,11 @@ whatever ranks candidates later.
 
 THE FIT
 -------
-Per expiry, a cubic in ln(K/F) by weighted least squares, weighted 1/band^2 so
-a penny-wide wing cannot drag the curve a tight at-the-money quote defines.
+Per expiry, iv = c0 + c1*d + c2*sqrt(d^2+s^2) + c3*d^2 + c4*d^3 around
+d = ln(K/F) - m (see smile_basis; a plain cubic and SVI both failed, see
+docs/measurements.md). Only m and s are searched; the five coefficients are
+weighted least squares, weighted 1/band^2 so a penny-wide wing cannot drag
+the curve a tight at-the-money quote defines.
 The axis is log-moneyness against that expiry's own forward: model-free given
 the forward, unmoved by IV or by time passing, and it shifts only when the
 forward does. Delta would be circular here, since the x-coordinate would move

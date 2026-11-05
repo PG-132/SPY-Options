@@ -2,7 +2,7 @@
 vrp.py - implied against realized, one claim per month. Step 5b.
 
   python app.py vrp          the table
-  python app.py vrp update   recompute from the cached prices
+  python app.py vrp refresh  re-download the prices first, then the table
 
 Ported from vrp_log.py in the straddle folder. The premise is unchanged: on
 the first session of a month the options imply some volatility for the month

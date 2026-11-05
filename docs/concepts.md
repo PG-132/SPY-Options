@@ -109,10 +109,12 @@ Distance out of the money is counted in expected moves and in delta, not in
 percent, for the same reason: a 2% strike is far away at one week and near at
 one month.
 
-The collected band is sized the same way - 6 expected moves below spot, 3
-above - and that is what keeps strikes with no real market out of the data in
-the first place. Garbage inside the band is removed by the gates instead: no
-bid, then band width, vega, spread share, open interest, volume and quote age.
+The collected band is sized the same way - 12 expected moves below spot, 6
+above, widened from 6/3 on 2026-10-15 because the variance swap integral
+needs the deep puts (see measurements.md). The band keeps strikes with no
+real market out of the data in the first place. Garbage inside the band is
+removed by the gates instead: no bid, then band width, vega, spread share,
+open interest, volume and quote age.
 
 ## The limit worth knowing
 

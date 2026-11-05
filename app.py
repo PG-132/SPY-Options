@@ -15,8 +15,9 @@ app.py - the one entry point for the SPY screener.
   python app.py prices   daily closes for SPY and the CBOE series, cached
   python app.py vrp      implied against realized, one claim per month
 
-More commands arrive as the modules land (surface, screen, etc). The files in
-folder screener/ are imported from here, not run on their own.
+The chooser the README describes is not built yet; see
+docs/changes/2026-11-04-choosing.md. The files in folder screener/ are
+imported from here, not run on their own.
 """
 
 import argparse

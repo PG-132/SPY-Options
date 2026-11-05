@@ -46,7 +46,7 @@ SERIES = {
     "^VIX": "vix.csv",           # 30-day constant maturity, the deep implied series
     "^VIX9D": "vix9d.csv",       # 9-day: the front of the term structure
     "^VIX3M": "vix3m.csv",       # 3-month: the back of it
-    "^IRX": "irx.csv",           # 13-week bill, for integrity item 1
+    "^IRX": "irx.csv",           # 13-week bill, for the flat-rate check in docs/integrity.md
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent

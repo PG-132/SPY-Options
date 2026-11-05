@@ -12,12 +12,13 @@ and are never printed.
 
 WHAT A SNAPSHOT CAPTURES
 -------------------------------------------------
-Every listed SPY expiry from 1 to 30 days out, calls and puts, at every strike
-from 6 expected moves below spot to 3 above. One expected move is the
-at-the-money IV of the expiry closest to 30 days, times the square root of the
-time to each expiry, so the band widens and narrows as that IV moves. At 12%
-IV it runs 20.6% below spot to 10.3% above at 30 days, 10.0% to 5.0% at a
-week, and 3.8% to 1.9% for tomorrow.
+Every listed SPY expiry from 1 to 37 days out, calls and puts, at every strike
+from 12 expected moves below spot to 6 above (6/3 before 2026-10-15). One
+expected move is the at-the-money IV of the expiry closest to 30 days, times
+the square root of the time to each expiry, so the band widens and narrows as
+that IV moves. At 12% IV it reaches 41.3% below spot to 20.6% above at 30
+days, 19.9% to 10.0% at a week, and 7.5% to 3.8% for tomorrow - asked for,
+not always listed: the exchange may stop short of it.
 
 The sides differ because the skew does. SPY puts stay bid and keep real delta
 far out of the money, since people pay for crash protection; calls stop being

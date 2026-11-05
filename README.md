@@ -60,6 +60,19 @@ bid/ask go stale, and `snap` warns you.
     docs/concepts.md      the mechanisms, and what each output column means
     docs/measurements.md  what produced every constant in the code
     docs/integrity.md     what could still be wrong, and how we would know
+    docs/status.md        where the project stands, next actions, history
+    docs/assumptions.md   open questions about intent, answered by ID
+    docs/context.md       goals, scope, decisions, rejected approaches
+    docs/architecture.md  the pipeline, the data folders, inspection coverage
+    docs/specs/           what each area does, one behavior per ID
+    docs/changes/         one record per feature, with a task checklist
     trades/               paper trades, one folder each
     data/                 snapshots and everything derived from them; not in git
+
+## Working with an agent
+
+Open this folder in Claude Code or Codex. Codex loads `AGENTS.md`; Claude Code
+loads `CLAUDE.md`, which imports it. For any other tool, start by reading
+`AGENTS.md`. A new session needs nothing from an old one: the state of the
+work lives in `docs/status.md`, and the open questions in `docs/assumptions.md`.
 

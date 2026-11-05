@@ -12,17 +12,10 @@ strike items off when they are checked rather than when they feel fine.
 
 
 
-### 1. The holiday table is hand-typed, and half-days are missing 
+### 1. ~~The holiday table is hand-typed, and half-days are missing~~
 
-`vol.HOLIDAYS` was typed from memory, not imported. Worse, early closes are
-not modelled at all: the Friday after Thanksgiving and Christmas Eve trade a
-half session and right now are counted as whole.
-
-session counts, which drive every per-session IV and so every
-comparison between expiries. Dormant until late November, then real.
-
-*How we would know:* a day the whole chain prices as cheap per session, with
-no event to explain it, sitting next to a known holiday.
+Handled; see "Handled, and why" below. The number is kept so references to
+items 2-4 stay valid.
 
 ### 2. European math on American options 
 
@@ -55,6 +48,15 @@ fits; long same-sign runs mean it does not, the way the cubic was caught.
 
 ## Handled, and why
 
+- **The holiday table, and half-days.** Was item 1: `vol.HOLIDAYS` typed from
+  memory and early closes counted as whole sessions. Half-days have been
+  modelled since 2026-10-30 (`vol.HALF_DAYS`, weight 0.5, measured on 33
+  day-after-Thanksgiving sessions; see docs/measurements.md). On 2026-11-04
+  both tables were checked against NYSE Group's published 2026-2028 calendar
+  (release of 2025-12-23) and match it exactly for 2026 and 2027. What is
+  left: the tables end at 2027 and must be extended by hand, the 0.5 weight
+  is applied to Christmas Eve unmeasured, and pricing time still ends at
+  16:00 on a 1pm-close expiry (A-003 and A-006 in docs/assumptions.md).
 - **Spot and option quotes are not simultaneous.** A pass takes about 90
   seconds and SPY drifts through it. Each contract is matched to the SPY price
   nearest its own quote time, and whatever mismatch remains lands in the
