@@ -28,14 +28,6 @@ Opened 2026-11-04, during knowledge-base setup. IDs are never reused.
 
 **Question:** end the pricing clock at 13:00 on `HALF_DAYS` expiries, or keep 16:00 as a documented convention? The agent's suggestion if it changes: 13:00 rather than 13:15, since variance builds only while SPY itself trades.
 
-### A-004 · CHOOSE-001 · Medium · The structure chooser
-
-**Assumed:** "Choosing" in the README is a planned goal that hasn't been built, not something removed. It's held in [changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md) as `proposed`.
-
-**Why:** the README describes it; no module, command or test implements it; `surface.py` says the tradeable flag "rides along for whatever ranks candidates later".
-
-**Question:** is it still a goal? If so: what form does a view take (range, direction, vol stance over dates?), which risk limits, which structures are in scope, and what does "fit" mean? Or is the next experiment the delta-hedged trade the Oct-30 notes mention?
-
 ### A-005 · COLLECT-003 · Low · Same-day expiries
 
 **Assumed:** skipping 0 DTE expiries is still intended.
@@ -75,6 +67,14 @@ Opened 2026-11-04, during knowledge-base setup. IDs are never reused.
 **Why:** a 12/3 chain would pass. Also, `ledger.converged()` reads the threshold from `vrp.CONFIG` on purpose ("the one thing that must not happen is this module quietly keeping a different threshold"), but `history.py` keeps its own `CONVERGED_MOVES = 12`.
 
 **Question:** is the below side the only one that matters, and should `history.py` read `vrp.CONFIG` too?
+
+### A-015 · TERM-006 · Medium · The drop rule's threshold is absolute
+
+**Assumed:** `term.CONFIG["max_vs_edge_cost"]` = 0.0005 (0.05 vol points of edge cost) is meant as a fixed cap at every vol level.
+
+**Why:** it was set on calm chains (measurements.md 2026-11-02). On `2026-11-05_1633`, at VIX 28, edge costs ran 0.0005 to 0.005, and the rule dropped every expiry from 11-06 to 11-12 and from 11-16 to 11-19. That left three windows: spot to 11-13, 11-13 to 11-20, and 11-20 to 11-30. It also cut 12-04 and 12-11, so that day has no 30-day rate and no VIX comparison; 11-30 was 5.02 days short, just over `vrp.CONFIG["max_extrapolation_days"]`. Some drops are real: run.json shows 11-17 to 11-19 listed only down to 680-690, with 13-17% delta still at the edge. Others are marginal, such as 11-09 at 0.00057. A fixed cap gets stricter as vol rises: 0.05 points is 0.33% of a 15% rate but 0.17% of a 30% one.
+
+**Question:** keep the cap absolute, or scale it with the expiry's own rate?
 
 ## Interpretations the agent made
 

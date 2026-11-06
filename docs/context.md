@@ -9,7 +9,7 @@ Set up on 2026-11-04 in the Claude desktop app (Code tab), working in a local cl
 From [README.md](../README.md), labeled **Decided** (the owner wrote it):
 
 - **Measure.** Capture the SPY option chain, solve our own IVs from the quotes, and reduce them to comparable numbers: at-the-money level per expiry, skew by delta, term structure per trading session. Distance is counted in expected moves and delta, time in sessions. Long-run context comes from published CBOE series; our own record accumulates from now on.
-- **Choose.** Given a view and risk limits, find the option structure that fits best. Not built yet; see [changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md) and A-004 in [assumptions.md](assumptions.md).
+- **Choose.** Given the exposure the owner wants across hypothetical spot outcomes, find the option structure that comes closest. Not built yet; defined by the owner on 2026-11-05 (A-004). See [changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md) and [specs/choose.md](specs/choose.md).
 - **Learn from paper trades.** Each trade in [trades/](../trades/README.md) is run to watch how the Greeks behave over a full cycle, not as a performance record.
 
 ## Scope
@@ -40,6 +40,7 @@ All **Decided** by the owner, as recorded in commits and docs. Detail lives in t
 
 | Date | Decision | Why | Where |
 | --- | --- | --- | --- |
+| 2026-09-18 | The chooser ranks by fit first and execution cost (bid-ask across all legs as a share of premium) a close second; expected P&L and theta per unit of gamma appear only as context, never as a sort key | Priced at their own IVs every structure is a fair bet, and theta/gamma reduces to ½σ²S², which is IV again | the owner's plan doc "SPY Options Screener Plan" (Claude Docs, 2026-09-17); [specs/choose.md](specs/choose.md) CHOOSE-002 |
 | 2026-09-24 | Count time to expiry in actual hours to the close, not whole days | Whole days put the 1-day expiry 1.3 vol points off | measurements.md "Whole days lie about short-dated options" |
 | 2026-09-24 | Read IVs from the out-of-the-money side only | Tighter quotes; avoids American early-exercise premium | `screener/vol.py` docstring |
 | 2026-10-07 | Smile shape: hyperbola + quadratic + cubic in IV, weighted 1/band^2 | Cubic and SVI both failed the sign-flip test | measurements.md "Two smile shapes that failed" |
@@ -52,6 +53,9 @@ All **Decided** by the owner, as recorded in commits and docs. Detail lives in t
 | 2026-11-03 | Every ledger window records the band it was priced under; 6/3 rows stay out of pooled settlement stats and the mover table never compares across a band change | Rates from different bands are different quantities | commit `1716f0e`; [specs/ledger.md](specs/ledger.md) |
 | 2026-11-05 | On 1pm-close days, snap at 12:45 ET; the snapshot's leftover session runs to 13:00 and counts at the half-day weight | At 15:45 the quotes are 2¾ hours stale. Measured to 16:00, a 12:45 snapshot would read half a session left and its front window about 17% low | [specs/context.md](specs/context.md) CTX-003 |
 | 2026-11-05 | Defer the pricing clock on 1pm-close expiries as a separate, lower-priority decision; it stays at 16:00 until then | The bias stays in that expiry's annualized IVs and never reaches the windows | A-003 in [assumptions.md](assumptions.md); [specs/vol.md](specs/vol.md) "Gaps" |
+| 2026-11-05 | The chooser takes the exposure the owner wants across hypothetical spot outcomes; fit is the distance to it, and the closest match is returned with its miss shown | "I want the most accurate exposure for what I'm betting"; the chain can't always reproduce the target exactly | [changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md); CHOOSE-001, 002, 004 |
+| 2026-11-05 | Chooser views in order: long premium, short premium, calendars and diagonals, direction. Undefined-risk structures stay as candidates | Calendars need both long and short legs; direction is the easiest to track; the owner won't trade undefined risk | CHOOSE-005, CHOOSE-006 |
+| 2026-11-05 | Paper trades are delta-hedged with SPY shares or futures, logged by hand in a column of the trade's daily CSV; the owner decides when to hedge and the chooser gives no hedge signals | Logging by hand works for now; automating it would need `webull.trade` | [trades/README.md](../trades/README.md); CHOOSE-007 |
 
 ## Rejected approaches
 
@@ -69,6 +73,8 @@ Each is written up in full in the linked entry; this is the index.
 | Half-day weight by clock time (0.538) or rounded to 0 | Clock time is right for the wrong reason; 0 is the worse error and divides by zero | 2026-10-30 | measurements.md "What a 1pm close is worth" | Christmas Eve or July 3 data shows a different weight |
 | Firm/marginal label on ledger windows | The split was void once narrow-band rows were refused; the raw margin is printed instead | 2026-11-03 | commit `a99a4c3`; measurements.md 2026-11-02 entry | a month of dailies under one band |
 | Skipping the snapshot on 1pm-close days | Loses the day's data point when a 12:45 snap and a small fix keep it | 2026-11-05 | [specs/context.md](specs/context.md) CTX-003 | the 12:45 snap proves hard to keep |
+| Hedging with options (the plan doc's hedge finder) | Adds a layer of complication and changes the trade's structure; shares or futures do the job | 2026-11-05 | [changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md) "Scope" | the owner gets to option hedges |
+| Hedge-timing signals from the chooser (e.g. delta climbing inside ±1 expected move) | The owner decides when to hedge and can read the exposures directly | 2026-11-05 | CHOOSE-007 | the owner asks for them |
 | Freshness by fixed age ("four days is fresh") | Breaks on the first session after a long weekend | before 2026-11-01 | `screener/prices.py` docstring | never |
 
 ## Proposals and assumptions

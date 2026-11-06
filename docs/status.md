@@ -22,7 +22,7 @@ The measuring pipeline is built and in daily use: snap, iv, surface, term, conte
 
 ## Behaviors to confirm
 
-All of them are in [assumptions.md](assumptions.md). Most consequential first: A-004 (the chooser), A-012 (how intent was read), and A-003 (1pm-close expiries priced to 16:00; narrowed on 2026-11-05 and deferred by the owner). The corrections an agent made are A-010, A-011, A-013 and A-014.
+All of them are in [assumptions.md](assumptions.md). Most consequential first: A-012 (how intent was read), and A-003 (1pm-close expiries priced to 16:00; narrowed on 2026-11-05 and deferred by the owner). The corrections an agent made are A-010, A-011, A-013 and A-014.
 
 ## Open questions
 
@@ -34,15 +34,17 @@ All of them are in [assumptions.md](assumptions.md). Most consequential first: A
 Not permission to act; do these when asked.
 
 1. Owner runs `python app.py daily` at 12:45 ET, not 15:45, on 2026-11-27 and 2026-12-24 (13:00 closes; see [context.md](context.md) Constraints).
-2. Owner works through [assumptions.md](assumptions.md), starting with A-004.
-3. Owner decides whether the chooser ([changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md)) or the delta-hedged trade is the next build.
+2. Owner works through [assumptions.md](assumptions.md), starting with A-012.
+3. Chooser, view 1 (long premium): settle the five open questions in [changes/2026-11-04-choosing.md](changes/2026-11-04-choosing.md), then write its acceptance criteria. The delta-hedged paper trade needs no build: hedges are logged by hand ([trades/README.md](../trades/README.md)).
 4. Re-run the band-shortfall check on a month of dailies under one band, as the 2026-11-02 measurements.md entry plans.
 5. Measure the 6/3 shortfall on windows directly: take a raw 12/6 chain, truncate it to 6/3, re-integrate and compare windows. Replaces arithmetic on a level table (A-001).
 6. Before 2027 ends, extend `vol.HOLIDAYS` and `vol.HALF_DAYS` from NYSE's calendar (2028 is already published).
-7. When VIX is materially higher, capture a chain and re-run the residual sign-flip test (integrity.md item 4).
+7. Repeat the residual sign-flip test on an intraday chain while VIX stays high. The first reading, on the 2026-11-05 closing chain, showed long same-sign runs from 11-12 out ([integrity.md](integrity.md) item 4).
 
 ## History
 
+- 2026-11-05: first chain under stress, `2026-11-05_1633` (SPY −4.41% close to close, VIX 16.61 to 28.18), snapped at 16:33 after the close from the 16:13-16:15 options-close quotes; run.json carries the market-closed and stale-quote warnings. The sign-flip test read for the first time (integrity.md item 4: long same-sign runs from 11-12 out, RMS still inside the quote band). The drop rule left three windows and no 30-day rate (A-015). Replaces next action 7, which waited for this chain.
+- 2026-11-05: A-004 resolved: the chooser stays a goal. The owner states the exposure wanted across hypothetical spot outcomes; fit is the distance to it, and the closest match is returned with its miss shown. Views come in order: long premium, short premium, calendars and diagonals, direction. Undefined-risk structures stay as candidates. Hedges are SPY shares or futures logged by hand in the trade CSV, not options for now, and the chooser gives no hedge signals. CHOOSE-001 to 007 and the change record rewritten; the ranking rules from the owner's September plan doc added to context.md, which had none of the chat-era chooser decisions. Replaces next action 3 (chooser or delta-hedged trade: both, the trade by hand).
 - 2026-11-05: A-003 partly resolved, split in two. The snapshot half is resolved: the owner chose to snap at 12:45 ET on 1pm-close days rather than skip them, and `context.session_remaining` now measures to 13:00 at the half-day weight (measured to 16:00 it read half a session left at 12:45). `collect.market_open` ends at 13:00 on those days so a 15:45 run warns. CTX-003 moved from Gap to Intended; CTX-002 and COLLECT-011 updated. The pricing-clock half stays open as A-003, deferred by the owner. Found while sizing it: the bias stays in that expiry's annualized IVs and never reaches the windows, because `term.py` rebuilds total variance with the same T (specs/vol.md "Gaps"). This replaces A-003's earlier framing, which made it the most consequential open item.
 
 - 2026-11-04: A-001 resolved: yes, the explanation was wrong. `ledger.py` and the 2026-11-02 measurements.md entry now say the shortfall shrinks with tenor (0.88, 0.71, 0.25 vol points on the three windows) and name the mechanism: the band is sqrt(T)-scaled, the listed strike range is not. The 6/3 exclusion itself is unchanged. Band history corrected in `collect.py` and context.md (6/3 through 10-13, one 20/10 snapshot on 10-15, 12/6 from 10-20), the stale `(1-30 days)` in `collect.anchor_iv` fixed, and the owner's git workflow added to AGENTS.md.

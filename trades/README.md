@@ -11,3 +11,7 @@ with the workbook it came from and any notes.
 
 These are paper trades, kept to watch how the Greeks behave over a full cycle,
 not a performance record.
+
+From 2026-11-05, delta hedges go in the trade's daily CSV as their own column,
+logged by hand: SPY shares or futures bought and sold, and when. Options aren't
+used as hedges for now.

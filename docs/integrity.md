@@ -46,6 +46,20 @@ against it, which is a different curve rather than a scaled one.
 residual sign-flip test. Flips near half the point count mean the basis still
 fits; long same-sign runs mean it does not, the way the cubic was caught.
 
+*First reading, 2026-11-05 (Observed, one chain).* `2026-11-05_1633`, taken
+after the close from the 16:13-16:15 options-close quotes, on a 4.41% SPY drop
+with VIX closing at 28.18 (16.61 the day before). Sign changes per fitted point
+held at 0.32-0.52 out to 11-11, then fell to 0.05-0.16 from 11-12 to 12-11:
+long same-sign runs, which by the test above mean the basis does not fit
+those expiries. The exceptions are the three thinly listed expiries 11-17 to
+11-19 (0.37-0.53), whose strikes stop at 680-690. On 11-04, at VIX 16.6, the
+expiries out to 11-16 flipped 0.43-0.71. The RMS stayed inside the quote band
+(0.09-0.12 vol points against median bands of 0.27-0.31 from 11-20 out), so
+the misfit is systematic but small against the quotes. Not settled: one chain,
+closing quotes rather than intraday ones, and the 11-04 chain already flipped
+only 0.10-0.29 from 11-20 out. Repeat on an intraday chain while VIX stays
+high.
+
 ## Handled, and why
 
 - **The holiday table, and half-days.** Was item 1: `vol.HOLIDAYS` typed from
