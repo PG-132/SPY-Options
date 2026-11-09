@@ -2,3 +2,16 @@
 * text=auto
 *.csv text
 *.py text
+
+# The agent knowledge base. GitHub collapses these in commit and pull request
+# diffs ("Load diff") so the code and the owner's own docs show first; they are
+# still there, one click away. Not generated in fact; the attribute is only how
+# GitHub decides what to collapse.
+AGENTS.md linguist-generated=true
+CLAUDE.md linguist-generated=true
+docs/status.md linguist-generated=true
+docs/assumptions.md linguist-generated=true
+docs/context.md linguist-generated=true
+docs/architecture.md linguist-generated=true
+docs/specs/** linguist-generated=true
+docs/changes/** linguist-generated=true

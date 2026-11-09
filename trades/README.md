@@ -14,4 +14,6 @@ not a performance record.
 
 From 2026-11-05, delta hedges go in the trade's daily CSV as their own column,
 logged by hand: SPY shares or futures bought and sold, and when. Options aren't
-used as hedges for now.
+used as hedges for now. For E-nano S&P 500 futures (NES), log contracts and the
+fill price: NES pays $0.50 per S&P 500 point, so one contract carries about 5
+SPY shares of delta, not 1, and the fill price is what converts it.

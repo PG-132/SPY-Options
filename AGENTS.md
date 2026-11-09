@@ -78,6 +78,7 @@ Update this table whenever a command changes or you run one with a new result.
 - Raw snapshots in `data/chains/` are never modified. Every derived number must be reproducible from them. `data/` is not committed.
 - Numbers carry error bars. Constants come from measurements, not choice. The standing rules at the end of [docs/integrity.md](docs/integrity.md) are hard rules.
 - Git: the owner pushes. Commit only when he says he is about to, one commit per change, never several chained together, and show him the message first since he usually rewrites it. Messages are lowercase, no prefix, one plain line saying what changed and why (`git log`), with a body only when the change is substantial. No `Co-authored-by` trailer unless he asks.
+- `.gitattributes` marks this file, `CLAUDE.md` and the knowledge-base docs (status, assumptions, context, architecture, specs/, changes/) `linguist-generated`, so GitHub collapses them in diffs and the owner sees code first. A new knowledge-base file gets a line there; the owner's own docs (README, measurements, integrity, concepts, trades) stay uncollapsed.
 - When you change a `CONFIG` constant, add a dated entry to docs/measurements.md saying what measurement produced the new value, and update the comment beside the constant.
 - When you add an `app.py` command, also update the `app.py` docstring, the README's "Running it" list, and `cmd_daily()` if it reads the newest snapshot.
 - When you add or rename an output column, update the module's `*_COLS` list, its tests, and docs/concepts.md if the column needs explaining.

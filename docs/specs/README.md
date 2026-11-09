@@ -15,6 +15,7 @@ What each part of the screener does, one behavior per ID. Specs describe current
 | PRICE | [prices.md](prices.md) | Daily closes and their cache; implied against realized by month |
 | APP | [app.md](app.md) | The command line and the daily pipeline |
 | CHOOSE | [choose.md](choose.md) | The structure chooser from the README. Not built |
+| SCEN | [scenario.md](scenario.md) | Value, Greeks and P&L of a position under hypothetical spot, IV, dates and paths. Not built |
 
 ## Status legend
 
