@@ -35,11 +35,12 @@ Read the surface across many snapshots: three history views, and a ledger of eve
 | LEDG-023 | The pivot fills every date a window spans; holidays aren't dates | Intended | | `test_a_window_fills_every_date_it_spans`, `test_a_holiday_is_not_a_date_the_grid_prices` |
 | LEDG-024 | Missed sessions (trading days with no snapshot) are named, through today; closed days and weekends aren't gaps | Intended | | `test_names_the_sessions_nobody_snapped`, `test_a_closed_market_is_not_a_missed_session`, `test_the_range_runs_to_today_so_todays_miss_is_reported`; commit `8c288df` |
 | LEDG-025 | No context output is an error, not an empty file | Observed | | `test_no_context_output_is_an_error_not_an_empty_file` |
+| LEDG-026 | A fourth history view, a fixed strike across a move: from each day's last snapshot to the next, per expiry, the sessions between, SPY's move (from the median spot vol.py matched quotes to), the strike nearest the old spot within 0.6%, its days to expiry at the second snapshot, its IV change, that change times sqrt(days/30) and that per 1% of move, written to `response.csv` by `history` and by `daily`'s `response` step, so the IV response band's rates and expiry scaling are checked on every new move. The change is the total at the strike, the engine's own time roll included (large across a weekend; measurements.md 2026-11-11) | Intended | AC-11 of [../changes/2026-11-11-iv-response.md](../changes/2026-11-11-iv-response.md) | owner accepted the record 2026-11-12; `TestFixedStrike` (3 tests); on the real snapshots it reproduces the five events of measurements.md 2026-11-11 within a few hundredths; integrity.md item 6 |
 
 ## Interfaces
 
 - `python app.py history [N]`, `python app.py ledger [N]`.
-- Output: `data/history/*.csv`, `data/ledger/windows.csv`, `data/ledger/pivot.csv`. Columns: `COLS` in `ledger.py`.
+- Output: `data/history/*.csv` (`response.csv` columns: `RESPONSE_COLS` in `history.py`), `data/ledger/windows.csv`, `data/ledger/pivot.csv`. Columns: `COLS` in `ledger.py`.
 
 ## Constraints
 

@@ -149,10 +149,79 @@ class TestMissingData(Base):
         self.assertIsNone(rows[0]["2026-10-14_1300"])
 
 
+class TestFixedStrike(Base):
+    """LEDG-026, AC-11 of docs/changes/2026-11-11-iv-response.md: from one
+    day's last snapshot to the next, the strike nearest the old spot and how
+    its IV moved against SPY. This is where the scenario engine's umbrella
+    response rates and its sqrt(30/days) scaling get checked."""
+
+    def day(self, root, name, spot, ivs, days):
+        """ivs: {(expiry, strike): iv}; days: {expiry: days to expiry}."""
+        write(root / "iv" / name / "contracts.csv",
+              [{"expiry": e, "strike": k, "iv": v, "spot_used": spot}
+               for (e, k), v in ivs.items()],
+              ["expiry", "strike", "iv", "spot_used"])
+        write(root / "iv" / name / "expiries.csv",
+              [{"expiry": e, "days_to_expiry": d} for e, d in days.items()],
+              ["expiry", "days_to_expiry"])
+
+    def setUp(self):
+        self.root = self.build({})
+        strikes = (730.0, 765.0, 767.0, 770.0)
+        self.day(self.root, "2026-11-04_1545", 767.0,
+                 {(e, k): 0.13 for e in ("2026-11-20", "2026-12-04") for k in strikes},
+                 {"2026-11-20": 16.0, "2026-12-04": 30.0})
+        # An earlier snapshot the same day: the day's last one is its reading.
+        self.day(self.root, "2026-11-05_1000", 750.0,
+                 {(e, k): 0.50 for e in ("2026-11-20", "2026-12-04") for k in strikes},
+                 {"2026-11-20": 15.3, "2026-12-04": 29.3})
+        later = {(e, k): 0.13 for e in ("2026-11-20", "2026-12-04") for k in strikes}
+        later[("2026-11-20", 767.0)] = 0.17          # +4.0 vol points at 15 days
+        later[("2026-12-04", 767.0)] = 0.159         # +2.9 at 29
+        self.day(self.root, "2026-11-05_1633", 733.0, later,
+                 {"2026-11-20": 15.0, "2026-12-04": 29.0})
+
+    def test_the_strike_nearest_the_old_spot_is_read_across_each_days_move(self):
+        self.assertEqual(history.anchors(), ["2026-11-04_1545", "2026-11-05_1633"])
+        rows = history.fixed_strike(history.anchors())
+        self.assertEqual([(r["expiry"], r["strike"]) for r in rows],
+                         [("2026-11-20", 767.0), ("2026-12-04", 767.0)])
+        move = 100 * (733 / 767 - 1)
+        for r, change, days in zip(rows, (4.0, 2.9), (15.0, 29.0)):
+            self.assertEqual(r["sessions"], 1.0)
+            self.assertAlmostEqual(r["move_pct"], move, places=12)
+            self.assertEqual(r["days"], days)
+            self.assertAlmostEqual(r["iv_change"], change, places=9)
+            self.assertAlmostEqual(r["per_30d"], change * (days / 30) ** 0.5, places=9)
+            self.assertAlmostEqual(r["per_1pct_30d"], r["per_30d"] / abs(move), places=9)
+
+    def test_an_expiry_with_no_strike_near_the_old_spot_is_left_out(self):
+        self.day(self.root, "2026-11-06_1543", 735.0,
+                 {("2026-11-20", 730.0): 0.2}, {"2026-11-20": 14.0})
+        rows = [r for r in history.fixed_strike(history.anchors())
+                if r["from"] == "2026-11-05_1633"]
+        self.assertEqual([r["strike"] for r in rows], [730.0])   # within 0.6% of 733
+        self.day(self.root, "2026-11-09_1421", 800.0,
+                 {("2026-11-20", 730.0): 0.2}, {"2026-11-20": 11.0})
+        rows = [r for r in history.fixed_strike(history.anchors())
+                if r["from"] == "2026-11-06_1543"]
+        self.assertEqual(rows, [])                                # 730 is 0.68% from 735
+
+    def test_it_is_saved_and_reported_with_its_own_columns(self):
+        rows = history.save_response()
+        with open(history.OUT_DIR / "response.csv", newline="", encoding="utf-8") as f:
+            self.assertEqual(next(csv.reader(f)), history.RESPONSE_COLS)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            history.report_response(rows)
+        text = out.getvalue()
+        self.assertIn("FIXED STRIKE ACROSS A MOVE", text)
+        self.assertIn("-4.43%", text)
+
+
 class TestEndToEnd(Base):
     def test_writes_three_files_and_reports_three_views(self):
         self.build(TWO)
-        snaps, fixed, constant, sessions, bands = history.analyse()
+        snaps, fixed, constant, sessions, bands, _ = history.analyse()
         self.assertEqual(len(snaps), 2)
         for name in ("constant_maturity.csv", "fixed_expiry.csv", "per_session.csv"):
             path = history.OUT_DIR / name
@@ -191,7 +260,7 @@ class TestBandChange(Base):
             "2026-10-15_1233": {**TWO["2026-10-13_1319"],
                                 "expiries": [expiry("2026-10-16", 1, 1, 0.147, band="12/6")]},
         })
-        snaps, fixed, constant, sessions, bands = history.analyse()
+        snaps, fixed, constant, sessions, bands, _ = history.analyse()
         self.assertEqual(set(bands.values()), {"6/3", "12/6"})
         with contextlib.redirect_stdout(io.StringIO()) as out:
             history.report(snaps, fixed, constant, sessions, bands)
@@ -206,7 +275,7 @@ class TestBandChange(Base):
             "2026-10-16_1300": {**TWO["2026-10-13_1319"],
                                 "expiries": [expiry("2026-10-16", 1, 1, 0.147, band="12/6")]},
         })
-        snaps, fixed, constant, sessions, bands = history.analyse()
+        snaps, fixed, constant, sessions, bands, _ = history.analyse()
         with contextlib.redirect_stdout(io.StringIO()) as out:
             history.report(snaps, fixed, constant, sessions, bands)
         self.assertNotIn("too narrow", out.getvalue())

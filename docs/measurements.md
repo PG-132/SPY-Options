@@ -1336,3 +1336,159 @@ expiries cluster at 10 to 14 days to expiry under every band, which is where
 SPY lists a weekly or daily that has not yet accumulated strikes. Across ten
 snapshots, three bands and six weeks, band and calendar cannot be separated.
 Recorded as unresolved.
+
+## How a strike's IV moved with spot, and what VIX history adds (2026-11-11)
+
+The scenario engine slid each strike's IV along the fitted smile as spot moved
+(its rule 1). Five large moves between consecutive snapshots test that rule
+directly, and they size the IV response band that replaces it
+([changes/2026-11-11-iv-response.md](changes/2026-11-11-iv-response.md)).
+Read-only scripts over vol.py's IVs (`contracts.csv`) and the cached Yahoo
+closes; nothing in `data/` was written.
+
+**At a fixed strike.** The strike nearest SPY before the move, the one a
+straddle opened then would hold. Change in vol points; days to expiry at the
+second snapshot. The last column is what the engine's slide predicted for the
+same strike.
+
+| Move | ~2 weeks | ~30 days | per 1%, ~30 days | slide predicted |
+|---|---|---|---|---|
+| Oct 29-30, -1.81% | +1.4 (14 days) | +0.8 (31) | +0.47 | -1.9 / -1.5 |
+| Nov 3-4, +1.48% | -2.6 (13) | -1.7 (30) | -1.18 | +1.7 / +1.4 |
+| Nov 4-5, -4.43% | +4.1 (15) | +2.9 (29) | +0.66 | -2.6 / -2.5 |
+| Nov 5-6, +0.54% | -2.8 (14) | -1.9 (28) | (-3.44) | +0.8 / +0.7 |
+| Nov 6-9, +2.08% | -1.4 (11) | -1.3 (32) | -0.60 | +3.0 / +2.2 |
+
+Every one went the opposite way to the slide: down days raised the strike's
+IV, up days lowered it. The per-1% column is the change at the expiry nearest
+30 days over the move; Nov 5-6's is in brackets because a +0.54% move cannot
+carry a -1.9 change, and most of it was IV falling on its own after the
+election (Nov 3). The Oct 29-30 rate was first quoted as 0.44, off the
+35-day expiry. Nov 3-4 came the day after the election and is large for its
+move; event premium coming out is the likely reason, not measured.
+
+**Across expiries.** If the change scales as sqrt(30/days), then the change
+times sqrt(days/30) is the same at every expiry. From 7 to 36 days it stayed
+within 18%, 12%, 25% and 22% (max over min) on the first four moves, and
+ranged 1.86 times on Nov 6-9, where the change was -1.3 to -1.6 at every
+expiry from 7 to 32 days (mostly the weekend in the engine's own time roll:
+see "Net of the engine's own time roll" below). Under 7 days it missed both ways: Nov 3-4's 1- and
+2-day expiries moved about 35% less than the 30-day expiry implies through
+the rule, Nov 4-5's 1-day expiry about 47% more (+23.3 against +15.7), and on
+Nov 6-9 the 1- to 4-day expiries rose or held on an up move. Four moves
+agreeing across a few weeks of expiries is a shape, not a rule; the owner
+treats it as provisional, to be checked on each new move over one to five
+weeks.
+
+**Against VIX.** The fixed-strike change at the expiry nearest 30 days was
+0.22-0.41 of VIX's close-to-close change on four of the moves, and 0.74 on
+Nov 5-6, where SPY barely moved. VIX is a 30-day variance-swap index measured
+around today's spot, so it carries the skew slide that a fixed strike does
+not, and the snapshots were not taken at VIX's close. VIX history is read for
+shape and tails only, loosely (the owner's word).
+
+**VIX on one session's move**, 1993-2026, change in the close in vol points:
+
+| SPY move | sessions | median | 90th percentile, the far side |
+|---|---|---|---|
+| -4% or worse | 49 | +7.1 | +15.3 |
+| -3 to -4% | 55 | +4.3 | +7.9 |
+| -2 to -3% | 237 | +2.5 | +4.8 |
+| -1 to -2% | 734 | +1.5 | +3.1 |
+| +1 to +2% | 901 | -1.3 | -2.7 (10th) |
+| +2 to +3% | 174 | -2.1 | -4.0 (10th) |
+
+The down tail is much longer than the up one. Since 2011, on -2 to -3% days,
+VIX9D, VIX and VIX3M moved +4.2, +3.1 and +2.3: the shorter the tenor, the
+bigger the move.
+
+**VIX over longer horizons.** The same move taken over more sessions, per 1%
+of SPY move, on moves of 1.5% or more, 1993-2026. Windows overlap, so the
+counts overstate the independent cases.
+
+| sessions | down: median (90th) | VIX fell | up: median (10th) | VIX rose |
+|---|---|---|---|---|
+| 1 | +1.16 (+2.21) | 3.3% of 600 | -0.94 (-1.80) | 5.7% of 548 |
+| 2 | +1.10 (+2.08) | 5.7% of 1,049 | -0.93 (-2.00) | 6.6% of 1,068 |
+| 5 | +1.04 (+2.07) | 8.3% of 1,549 | -0.79 (-1.84) | 10.7% of 2,086 |
+| 10 | +0.94 (+2.09) | 12.0% of 1,836 | -0.69 (-1.73) | 14.5% of 2,945 |
+| 21 | +0.87 (+2.05) | 12.3% of 2,064 | -0.51 (-1.52) | 21.8% of 4,037 |
+
+A drop raises VIX by about as much over a week as over a day (90% of the
+one-session median at five sessions), and its tail is the same at every
+horizon. A rally's effect fades faster, to about half over a month. The
+longer the horizon, the more often VIX went the other way: IV moves for its
+own reasons too. Since 2011 the shape is the same and the levels higher (down
++1.48 per 1% over one session, +1.28 over five).
+
+**What the umbrella figures are, against this.** The IV response band's rates,
+per 1% of SPY move at 30 days, are +1 and +2 on down moves and -1 and -1.5 on
+up moves, scaled by sqrt(30/days): the owner's choice, deliberately generous,
+not a fit. On the downside they sit at 1.5-4 times the two measured rates
+(+0.47, +0.66). On the upside the first draft, -0.5 and -1, did not: the
+measured -0.60 and -1.18 put -1 between them, so on 2026-11-12 the owner
+widened them to -1 and -1.5, above both. Applying the same rates however many sessions a move took
+is generous on drops out to about a week and more so after, and more
+generous still on rallies. The band does not cover IV moving against the
+usual way.
+
+**Spread bounds without the slide.** The same read-only scan as the
+2026-11-11 `arb` finding (every 5-wide call vertical and butterfly on the
+16 snapshots, whole expected moves out to three on each snapshot's date),
+with each strike's IV held instead of slid: 7 of 146,880 verticals broke a
+bound, against 2,658 with the slide, and 2.3% of butterflies, all but 2 of
+them inside their own quote bands (4.6% with the slide). So the slide made
+nearly all the vertical breaches and about half the butterfly ones.
+
+**A sixth move, read by `history` (2026-11-12).** The fixed-strike view
+built into `history` (LEDG-026) reproduces the five moves above within a
+few hundredths. Its spot is the median of vol.py's quote spots rather than
+run.json's, so its moves read -1.80%, +1.50%, -4.45%, +0.59% and +2.04%. It
+also read Nov 10-11, a +1.47% rally, for the first time. The change grew
+with tenor instead of shrinking with it: -0.22 at 7 days, -0.40 at 12 and
+-0.58 at 30, so `per_30d` ran -0.10 to -0.58 across 7-35 days. The 1- and
+2-day expiries rose, +1.2 and +1.05. The rate at 30 days was -0.39 per 1%.
+Read as total changes, that made two moves of six, both rallies, that the
+sqrt(30/days) scaling did not fit; net of the engine's own roll (below),
+Nov 6-9 fits and this one is the only miss.
+On both, the band's `none` and `moderate` cases bracket what happened at
+every expiry from 7 days out, since IV fell by less than the scaled rates
+say.
+
+**Net of the engine's own time roll (2026-11-12).** The owner pointed out
+that every reading above is the total change at a fixed strike between two
+snapshots, and part of that is what the engine's time roll does on its own
+(rule 2), which the engine applies before the response. The roll alone was
+priced read-only for each move: the strike near the old spot, at the second
+snapshot's date (valued at its close; the snapshots were 14:21-16:33), spot
+unchanged, no response.
+
+| Move | 7 days: measured / roll | ~2 weeks | ~30 days |
+|---|---|---|---|
+| Oct 29-30 | +2.06 / -0.16 | +1.45 / -0.02 | +0.87 / 0.00 |
+| Nov 3-4 | -3.29 / -0.92 | -2.59 / (no term) | -1.74 / -0.22 |
+| Nov 4-5 | +7.10 / +0.04 | +4.06 / +0.10 | +2.91 / +0.05 |
+| Nov 5-6 | -4.28 / -0.70 | -2.84 / -0.45 | -1.87 / (no term) |
+| Nov 6-9 | -1.43 / +1.32 | -1.39 / +1.22 | -1.26 / +0.28 |
+| Nov 10-11 | -0.22 / -0.04 | -0.45 / (no term) | -0.58 / +0.03 |
+
+"No term" is an expiry the drop rule left out of the term structure, where
+the engine keeps a constant IV and has no roll to give. At two to five weeks
+the roll is within 0.2 of zero on every move but Nov 6-9; at a week it
+reaches -0.9 around the election. Nov 6-9 spans a weekend, and the roll alone
+would have raised the strike's IV by about 1.3 points at 7-11 days as the
+weekend left the window. Net of it, that move's response was -2.75, -2.61
+and -1.54 at 7, 11 and 32 days: falling with tenor, and within about 20% of
+sqrt(30/days). So its "flat across tenors" reading above was mostly the
+roll, and the scaling now misses on one move of six (Nov 10-11, where the
+roll is near zero). Net of the roll, the up-move rates at about 30 days are
+-1.01 per 1% (Nov 3-4) and -0.75 (Nov 6-9), not -1.18 and -0.60; the down
+moves are unchanged. The band holds all of them. `history`'s fixed-strike
+view still reports the total change, roll included, so a weekend or an
+event in the term structure shows in it; read its `per_30d` with that in
+mind. The rates stay as they are: the owner treats them as discretionary,
+to be adjusted as the engine is used (2026-11-12). Script: `roll_share.py`.
+
+Scripts (scratch, not in the repo): `event_ivs.py`, `tenor_scaling.py`,
+`vix_by_move.py`, `vix_by_horizon.py`, `scan_bounds_sticky.py`. The change record proposes a history
+view that repeats the fixed-strike reading on every new pair of snapshots.

@@ -204,6 +204,15 @@ economic calendar belongs beside: it answers whether the market is getting
 more or less worried about next Thursday specifically. Only available where
 expiries are consecutive daily ones, so about two weeks out on SPY.
 
+**Fixed strike across a move.** Pin the STRIKE and follow it from one day's
+last snapshot to the next: the strike nearest the old spot, and how its IV
+changed against how far SPY moved (`data/history/response.csv`, written
+every `daily`). This is the measurement under the scenario engine's IV
+response. `per_30d` is the change times `sqrt(days/30)`: if the engine's
+expiry scaling holds, it reads the same at every expiry of one move, and
+`per_1pct_30d` is in the unit the engine's rates are. The first six large
+moves are in measurements.md 2026-11-11.
+
 ## Which number is the right one depends on the structure
 
 Total variance and forward variance are both correct and neither is the
@@ -399,3 +408,127 @@ ours, so that one is like for like and gets ranked. The windows will be
 ranked eventually against our own history of them, at our own resolution,
 which is why every window of every snapshot gets logged rather than only the
 ones that looked interesting on the day.
+
+## What-if: the scenario engine
+
+`python app.py scenario` answers "what would this position be worth, and what
+would it be exposed to, if spot, IV or the date were different". It never
+answers how likely any of that is. Priced at the chain's own IVs, a position
+is a fair bet, so a grid of P&L is a map of the position's shape, not of its
+edge, and it is never a sort key.
+
+It stands on the measurements rather than beside them. At the snapshot's own
+spot and time every leg prices back to vol.py's IV and Greeks, so a grid's
+middle row in its first column reads zero. A point is three inputs kept
+apart: the date, the spot, and each strike's IV on that date. Moving spot
+leaves each strike's IV where it was (sticky strike; until 2026-11-12 the
+smile slid along its fitted curve, which went the wrong way on every large
+move measured). Moving the date takes away the variance the term structure
+prices for the sessions that pass, so a weekend removes none. A leg's IV can
+rise over a weekend for that reason: the same remaining variance spread over
+less calendar time. That carried IV is "no change in the market's view", not
+the same quoted number. On top of it goes the IV response to the spot move,
+under three cases, and any `--shift`. The full rules, and the readings the
+owner has kept as built for now (A-017), are in `screener/scenario.py`. A later date
+still costs carry over a weekend: the forward keeps today's carry rate and
+rolls toward spot every calendar day (A-016, kept by the owner 2026-11-13).
+
+The IV response. Nobody knows how much IV moves with spot, only that drops
+raise it more than rallies lower it, so every grid point is priced three
+times. `none` adds nothing. `moderate` adds +1.0 vol point per 1% of SPY
+drop, -1.0 per 1% of rally; `large` +2.0 and -1.5. Those are for a leg 30
+days from expiry, scaled by `sqrt(30 / days left)`. They are umbrella
+figures set above what five moves measured (measurements.md 2026-11-11), not
+a fit, and they apply to the whole move however many sessions it took. The
+cases are named for the IV change, not the outcome, because which one hurts
+depends on the position: a bigger IV fall on a rally helps a short straddle
+and hurts a long one. The report names the lowest and highest case at each
+point. Not in the band: IV moving against the usual way, or moving with no
+spot move (ask with `--shift`).
+
+What the output columns mean:
+
+- `moves`: spot's distance from the start in expected moves of the
+  position's front expiry, `ln(S'/S)` over `atm_iv x sqrt(T)`, the same
+  measure as `moves_from_forward`. `move_pct` is the same move in percent,
+  the unit the response rates are in.
+- `sessions_passed`: the variance clock from the snapshot to the point's
+  close, counting the part of the snapshot's own session that was left. The
+  horizon: how long the move took. `--sessions 1,5` adds the closes that
+  many sessions out to the grid's dates.
+- `days_left`: the leg's calendar days to expiry at the point, which is
+  what scales its response. A separate input from the horizon.
+- `response`: `none`, `moderate` or `large`, the case the row is priced
+  under. `iv_response`: that leg's response at the point, in vol points;
+  `iv` already includes it.
+- `value`, `pnl`: model value at the point, and that minus model value at
+  the start, in dollars for the whole leg or position.
+- `value_low`, `value_high`, `pnl_low`, `pnl_high`: the same quantities
+  repriced at each leg's `iv_bid` and `iv_ask`. Legs on one expiry and
+  strike read one IV, so they move together: offsetting ones, or a
+  synthetic, carry no range. A position's range then adds each strike's
+  extremes, so it is the worst case for strikes that offset. At the start
+  it is not zero: no position can be marked closer than its quotes.
+- `entry_mid`, `entry_far`: cost at mid, and paying asks and receiving bids.
+- `model_minus_mid`: a leg's model start value minus its own mid. Near zero
+  for an out-of-the-money leg, because its IV was solved from that mid. For
+  an in-the-money leg it is how far its own quote sits from parity with the
+  out-of-the-money side. Shown beside P&L, never in it. For an NES leg it
+  is $0.50 x contracts x (the shared NES mark at the start - its own fill):
+  what that contract made or lost before the snapshot.
+- `iv_source`: `vol` for the strike's own IV; `fit` for a strike vol.py
+  could not read, taken from the curve, with the fit's RMS as its band.
+- `shares_per_contract`: SPY shares of delta per hedge unit. One for a
+  share; `0.50 x fill / SPY spot` for an NES future, about 5, read off the
+  latest fill. A future has one price at a time, so every NES contract is
+  marked to that one price; converting each fill at its own ratio would
+  leave delta behind in a closed position.
+- `flags`: `deep` (past 0.9 delta, so the European price is least safe),
+  `tenor` (a response applied to a leg outside one to five weeks to expiry,
+  where the `sqrt(30/days)` scaling is unchecked; not capped),
+  `fit_iv` (read off the curve), `no_term` and `negative_var` (constant IV
+  over time, with nothing to roll from), `iv_floor`, `expired` (settled in
+  cash at intrinsic on its expiry date and held there, zero Greeks),
+  `no_quote`, `arb` (the strikes held on one expiry priced into an
+  arbitrage at that point: a vertical below zero or above its discounted
+  width, or a butterfly below zero, by more than half a cent a share; the
+  report names the largest). `arb` is flagged, never repaired. At the start
+  a breach is the quotes' own, a cent or two a share; while the smile slid
+  it reached $513 on a $5 vertical after a move, and with each strike's IV
+  held it is rare. `edge` and `no_fit` belonged to the slide and are gone.
+  `iv_floor` shows up on large rallies, where a response linear in the move
+  takes IV to its floor (see integrity.md item 6).
+
+Sensitivities to spot, and they differ. The `delta` column is
+Black-Scholes delta at a fixed IV: what vol.py writes, and on
+`2026-11-09_1421` within 0.01 of Webull's API delta on every
+out-of-the-money contract (median 0.0011). Under `none` the grid's own slope
+is that delta. Under a response each strike's IV also moves with spot, so
+the slope adds vega x the response's own slope, and differs by side: below
+spot `delta - vega x drop rate x 100/S x sqrt(30/days)`, above it
+`delta + vega x rally rate x the same`. The report prints all of them. (While
+the smile slid, the slope on that snapshot's Nov-13 750 straddle was +32.99
+shares against +15.90 of delta.) Inside the what-if a slope is the hedge
+that cancels first-order P&L under its case. Which hedges SPY better depends
+on how SPY's IVs actually move with spot and on how often the hedge is
+rebalanced, and that has not been measured here (integrity.md item 5).
+
+`inputs`, on every saved row: a fingerprint of the legs as the engine read
+them, fills included, and of every snapshot file it reads, as it read them:
+the files are hashed either side of the read, and a run whose data changed
+in between is refused rather than stamped. `report`, on grid
+and path rows: that, plus the run's own shift, sessions and response rates,
+or its path steps, so a grid at another shift or another path is another
+report of the same position. Two files with the same value were
+priced from the same position on the same data. A run removes a grid or path
+beside it with any other value, or none (files saved before the column
+existed). It does not cover the engine's own code: a result saved before a
+change to `scenario.py` keeps its value.
+
+A grid row holds one spot at every date: SPY moved there now and stayed.
+So in the columns after a front expiry, a calendar's front leg settled at
+the row's spot. A path is where SPY on an expiry and SPY afterwards can
+differ, so a path must have a step dated on each expiry it passes, and the
+leg keeps what it settled at there. A path is priced with no response: its
+`iv_shift` column is its own story for IV, and a response on top would
+count it twice.

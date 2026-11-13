@@ -86,6 +86,16 @@ Opened 2026-11-04, during knowledge-base setup. IDs are never reused.
 
 **Question:** OK, or should everything start as Observed until you confirm it?
 
+### A-017 · SCEN-002, SCEN-008, SCEN-012 · Low · Three smaller readings in the scenario engine
+
+**Assumed:** (1) a strike the chain does not list is refused, not read off the fitted curve; (2) a listed strike vol.py could not read, which does take the curve inside its range, carries the fit's RMS as its IV band; (3) the position's range adds each strike's low and each strike's high, as though every strike errs the worst way at once. (Narrowed 2026-11-11, the owner's go-ahead on a Codex finding: legs on one expiry and strike read one IV, so they are now taken together first; +10 and -10 of one call had read -$10 to +$10. Between strikes the question below stands.)
+
+**Why:** the record says a strike that "was not readable" takes the curve, and reads that as one vol.py failed to solve. On `2026-11-05_1633` a straddle at 733 on 12-04, which lists 730 and 735, came back priced off the curve with no quote: a number for a contract nobody can trade. A curve-read leg has no quotes of its own to give it a band, and the fit's RMS is the curve's own measured miss. Adding extremes is the conservative read, the one `vol.variance_swap` takes with quote spreads; between legs that offset, a spread or a calendar, the truth is narrower.
+
+**Owner, 2026-11-13:** "leave it like that for now": all three stay as built, deferred rather than confirmed.
+
+**Question:** keep all three, or change any of them?
+
 ## Text the agent corrected (veto any of these)
 
 Where git history showed the code had been changed on purpose, the stale text was updated to match. No logic was changed; the tests still pass.

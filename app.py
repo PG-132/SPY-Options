@@ -10,20 +10,28 @@ app.py - the one entry point for the SPY screener.
   python app.py surface  fit the smile per expiry and score every point
   python app.py term     strip variance between expiries: the time axis
   python app.py context  which windows are priced differently from the rest
-  python app.py history  the same surface seen from every snapshot so far
+  python app.py history  the same surface seen from every snapshot so far,
+                         and each strike's IV across each day's move
   python app.py ledger   every window ever priced, and what became of it
   python app.py prices   daily closes for SPY and the CBOE series, cached
   python app.py vrp      implied against realized, one claim per month
+  python app.py scenario pos.csv [snapshot] [--shift N] [--sessions 1,5]
+  python app.py scenario pos.csv [snapshot] --path path.csv
+                         what a position does under hypothetical spot, IV
+                         shifts and dates, under three IV responses to the
+                         spot move; a what-if, never a forecast
 
 The chooser the README describes is not built yet; see
-docs/changes/2026-11-04-choosing.md. The files in folder screener/ are
-imported from here, not run on their own.
+docs/changes/2026-11-04-choosing.md. It will call the scenario engine for
+every number. The files in folder screener/ are imported from here, not run
+on their own.
 """
 
 import argparse
 import sys
 
-from screener import collect, context, history, ledger, prices, surface, term, vol, vrp
+from screener import (collect, context, history, ledger, prices, scenario, surface,
+                      term, vol, vrp)
 
 
 def cmd_daily():
@@ -36,7 +44,8 @@ def cmd_daily():
     the run rather than letting later steps report on older data."""
     steps = (("snap", collect.cmd_snap), ("iv", vol.cmd_iv),
              ("surface", surface.cmd_surface), ("term", term.cmd_term),
-             ("context", context.cmd_context), ("ledger", ledger.cmd_ledger))
+             ("context", context.cmd_context), ("ledger", ledger.cmd_ledger),
+             ("response", history.cmd_response))
     for i, (name, run) in enumerate(steps, 1):
         print()
         print(f"{'=' * 72}")
@@ -73,6 +82,17 @@ def main():
     pr.add_argument("refresh", nargs="?", help="pass `refresh` to re-download")
     vr = sub.add_parser("vrp", help="implied against realized, monthly")
     vr.add_argument("refresh", nargs="?", help="pass `refresh` to re-download")
+    sc = sub.add_parser("scenario", help="a position under hypothetical spot, IV and dates")
+    sc.add_argument("position", help="position CSV: kind,expiry,strike,right,qty,price")
+    sc.add_argument("snapshot", nargs="?",
+                    help="folder name under data/surface/; default the newest")
+    sc.add_argument("--shift", type=float, default=0.0,
+                    help="parallel IV shift for the grid, in vol points; refused "
+                         "with --path, whose steps carry their own iv_shift")
+    sc.add_argument("--sessions",
+                    help="extra grid dates, whole sessions after the snapshot, "
+                         "comma-separated (e.g. 1,5); refused with --path")
+    sc.add_argument("--path", help="path CSV: date,spot,iv_shift,kind,qty,price")
 
     # VS Code's Run button starts the file with no arguments. Default to the
     # read-only command; anything that writes has to be asked for.
@@ -103,6 +123,8 @@ def main():
         prices.cmd_prices(a.refresh)
     elif a.cmd == "vrp":
         vrp.cmd_vrp(a.refresh)
+    elif a.cmd == "scenario":
+        scenario.cmd_scenario(a.position, a.snapshot, a.path, a.shift, a.sessions)
 
 
 if __name__ == "__main__":

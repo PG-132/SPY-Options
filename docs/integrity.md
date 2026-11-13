@@ -26,6 +26,14 @@ deep-in-the-money phenomenon, but the exposure is not zero.
 *How we would know:* bound it. Price a few of our actual strikes under a
 binomial tree and compare. If the gap is inside the IV band, stop worrying.
 
+The scenario engine (2026-11-09) makes this matter more: its what-ifs push
+legs deep in the money, so it flags any leg past 0.9 delta, a placeholder
+until this is bounded. It also shows the in-the-money side directly. Priced
+at the strike's out-of-the-money IV, an in-the-money leg sits below its own
+mid by a median of 11 cents a share, and by $2-4 deep in the money, on the
+2026-11-04 chain. That gap mixes wide quotes with any early-exercise premium,
+and nothing yet separates the two.
+
 ### 3. Webull is not an independent check 
 
 Our IVs agreeing with theirs to 0.11 points is reassuring but not proof: a
@@ -59,6 +67,86 @@ the misfit is systematic but small against the quotes. Not settled: one chain,
 closing quotes rather than intraday ones, and the 11-04 chain already flipped
 only 0.10-0.29 from 11-20 out. Repeat on an intraday chain while VIX stays
 high.
+
+### 5. Which delta hedges SPY: fixed-IV, or the scenario grid's slope
+
+The scenario engine prints Black-Scholes delta at a fixed IV, and beside it
+the slope of its own grid, which also moves each leg's IV along the fitted
+smile as spot moves. On `2026-11-09_1421`'s Nov-13 750 straddle they read
++15.90 and +32.99 shares. Each is right about its own question. Inside the
+what-if, the slope is the hedge that cancels first-order P&L. Against SPY,
+the better hedge is whichever matches how SPY's IVs really move with spot,
+at the interval the hedge is rebalanced, and that is not known. Hull and
+White (2017, "Optimal delta hedging for options") found S&P 500 fixed-strike
+IVs tending to fall as the index rose, the opposite of the sliding smile's
+assumption. That is a reason to test the slope, not evidence about this
+position, period or rebalancing interval. The fixed-IV delta did match
+Webull's API delta on the same snapshot (straddle 15.49 shares against 15.90,
+median gap 0.0011 across 1,824 out-of-the-money contracts); that is the API
+field, not necessarily the app's display.
+
+*How we would know:* first from the snapshots already held: between
+consecutive chains, regress each fixed strike's IV change on SPY's change,
+and set the result beside the sliding smile's prediction (`-slope/S`, +0.275
+vol points per $1 on that straddle) and sticky strike's zero. Then the hedge
+itself, at the owner's rebalancing interval: hedge with each delta on paper
+trades or going forward, and compare the variance of the hedged P&L. Both
+need many observations before they say anything.
+
+*First reading, 2026-11-11 (Observed, five moves).* On the five largest moves
+between consecutive snapshots (Oct 29-30 to Nov 6-9, -4.43% to +2.08%), the
+strike nearest the old spot moved the opposite way to the slide's prediction
+every time: +2.9 at 29 days where the slide said -2.5 on the Nov 5 drop, -1.7
+at 30 days where it said +1.4 on the Nov 4 rally (measurements.md
+2026-11-11). Five moves, three of them around an election, are not a
+regression, but they are consistent with Hull and White's sign and not with
+the slide's. Since 2026-11-12 the engine holds each strike's IV fixed and
+shows a band of IV responses on top of it
+([changes/2026-11-11-iv-response.md](changes/2026-11-11-iv-response.md)). The
+grid's slope under `none` is the fixed-IV delta, and under the other two
+cases the delta plus vega times the response's own slope, different below
+and above spot. The hedge comparison above still stands, now between
+those.
+
+### 6. The IV response band is sized from five moves
+
+The band's rates (+1 and +2 vol points per 1% of SPY on down moves,
+-1 and -1.5 on up moves since 2026-11-12, at 30 days) are the owner's
+umbrella choice, not a fit. Three things under them are thin. The rates rest on two down moves and
+two up moves at a fixed strike, plus VIX history read loosely. The
+sqrt(30/days) scaling across expiries held on four of those moves between 7
+and 36 days, not on the fifth, and missed both ways under 7 days. And taking
+the same rates however many sessions a move took is an assumption: VIX says
+it is near right out to a week and generous after. None of it covers IV
+moving against the usual way, which VIX did on 3-6% of one-session moves of
+1.5% or more and up to 22% over a month.
+
+Two more since it was built (2026-11-12):
+- **The scaling.** A sixth move, Nov 10-11 (+1.47%), read by the new
+  `history` view, did not follow it: the change grew with tenor instead of
+  shrinking. The owner then pointed out that every reading is the total
+  change at a fixed strike, which includes the engine's own time roll.
+  Priced out, the roll is within 0.2 of zero at two to five weeks on every
+  move but Nov 6-9. That one spans a weekend, and the roll alone would have
+  raised IV about 1.3 points at 7-11 days. Net of it, Nov 6-9 follows the
+  scaling within about 20%, so one move of six misses, not two
+  (measurements.md 2026-11-11, "Net of the engine's own time roll").
+  `history`'s view still reports the total change.
+- **Large rallies.** The response is linear in the move, and the grid runs
+  to three expected moves, past the +2.1% and -4.4% the rates were sized on.
+  On `2026-11-10_1540`'s Nov-20 750 straddle, `large` at +5.5% with 10 days
+  left is -14 vol points against a 16% IV, leaving under 2%; further out, and
+  with 3 days left, it reaches the floor: 10 of 52 points flagged
+  `iv_floor`. That is a number the measurements never reached. The owner
+  left it as it is (2026-11-12): the figures are discretionary, and the
+  flag marks those points while the engine's use shows what to change.
+
+*How we would know:* read every new pair of snapshots the same way (the
+`response` step of `daily` now does it, into `data/history/response.csv`),
+and set
+each move's fixed-strike change, by expiry from one to five weeks, beside the
+band. A move outside the band on the side that hurts a position is the
+event that resizes it. Record each reading in measurements.md.
 
 ## Handled, and why
 

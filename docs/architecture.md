@@ -22,10 +22,11 @@ There is no `requirements.txt` or `pyproject.toml` (A-008 in [assumptions.md](as
 | `screener/surface.py` | Readable and tradeable gates, the smile fit, residuals and edges, forward cost |
 | `screener/term.py` | Forward variance between expiries, constant-maturity vol, no-arbitrage check, the drop rule for under-resolved expiries |
 | `screener/context.py` | Every window against the rest of the chain and against its neighbours; the level against VIX |
-| `screener/history.py` | Three cross-snapshot views: fixed expiry, constant maturity, per session |
+| `screener/history.py` | Four cross-snapshot views: fixed expiry, constant maturity, per session, and a fixed strike across each day's move (the check on the scenario engine's IV response) |
 | `screener/ledger.py` | Every window of every snapshot, rebuilt each run; repricing (movers), settlement against realized, pivot, missed sessions |
 | `screener/prices.py` | Daily closes for SPY, ^VIX, ^VIX9D, ^VIX3M, ^IRX from Yahoo; the cache and its freshness guard. The only file that talks to Yahoo |
 | `screener/vrp.py` | Implied against realized, one non-overlapping claim per month |
+| `screener/scenario.py` | A position's value, Greeks and P&L under hypothetical spot, IV shifts, dates and paths, on the snapshot's own IVs and term structure, each strike keeping its IV as spot moves, under three IV responses to the move. What-if only; the UI and the chooser call it |
 | `tests/` | Offline unit tests, one file per module, with a fake Webull client |
 | `trades/` | Hand-kept paper-trade logs (CSV plus the source workbook) and notes |
 
@@ -40,7 +41,7 @@ There is no `requirements.txt` or `pyproject.toml` (A-008 in [assumptions.md](as
 **Daily pipeline** (`python app.py daily`, about 15:45 ET; 12:45 on 1pm-close days). Each step reads the newest output of the one before; a failure stops the run.
 
 ```text
-snap ──> iv ──> surface ──> term ──> context ──> ledger
+snap ──> iv ──> surface ──> term ──> context ──> ledger ──> response
  │        │        │          │         │           │
  │        │        │          │         │           └─ data/ledger/  (rebuilt from every snapshot's context output)
  │        │        │          │         └─ data/context/
@@ -50,7 +51,9 @@ snap ──> iv ──> surface ──> term ──> context ──> ledger
  └─ data/chains/YYYY-MM-DD_HHMM/                 options.csv, spot.csv, run.json  (raw, never modified)
 ```
 
-`history`, `prices` and `vrp` are run on their own. `context`, `ledger` and `vrp` call `prices` for SPY closes and VIX.
+`response` is history's fixed-strike view alone (`history.cmd_response`), reading every day's last snapshot in `data/iv/` and writing `data/history/response.csv`. The full `history`, `prices` and `vrp` are run on their own. `context`, `ledger` and `vrp` call `prices` for SPY closes and VIX.
+
+**Scenarios** (`python app.py scenario <position.csv>`, on demand, not in `daily`). Reads one snapshot's raw quotes (`data/chains/`), vol.py's IVs and forwards (`data/iv/`), the fit and its range (`data/surface/`, read only for a strike vol.py could not read), and the term structure through `term.load`, starting on vol.py's clock (`vol.years_to_expiry`). Writes `data/scenario/<snap>/<position>/`.
 
 **Settlement.** A ledger window spans (start, end] in sessions. Once `end` is in the cached SPY closes, its realized volatility is measured over exactly those closes and set beside the forward vol it was priced at.
 
@@ -72,10 +75,11 @@ Everything under `data/` is regenerable and git-ignored, except `data/README.md`
 | `data/surface/<snapshot>/` | `surface` | `points.csv`, `fits.csv` |
 | `data/term/<snapshot>/` | `term` | `forward.csv`, `constant.csv` |
 | `data/context/<snapshot>/` | `context` | windows against rest and neighbours |
-| `data/history/` | `history` | `constant_maturity.csv`, `fixed_expiry.csv`, `per_session.csv` |
+| `data/history/` | `history`; `response.csv` also by `daily` | `constant_maturity.csv`, `fixed_expiry.csv`, `per_session.csv`, `response.csv` |
 | `data/ledger/` | `ledger` | `windows.csv` and `pivot.csv`, rebuilt each run |
 | `data/prices/` | `prices` | daily closes per symbol |
 | `data/vrp/` | `vrp` | the monthly implied/realized log |
+| `data/scenario/<snapshot>/<position>/` | `scenario` | `legs.csv`, and `grid.csv` or `path.csv`; every row stamped with `inputs`, and a folder never mixes two; saves are staged in `data/scenario/.work/` |
 
 Column lists are the `*_COLS` constants at the top of each module.
 
@@ -104,6 +108,7 @@ None. It runs by hand on the owner's machine. There is no CI configuration in th
 | `screener/history.py` | docstring | 2026-11-04 | |
 | `screener/ledger.py` | docstring; band, convergence, movers filter, settled summary read in full | 2026-11-04 | roll-down and pivot bodies not traced |
 | `screener/prices.py`, `screener/vrp.py` | docstrings, CONFIG keys, `cmd_vrp` | 2026-11-04 | |
-| `tests/` | every test name read; suite run | 2026-11-04 | 256 passed |
+| `screener/scenario.py` | written in full | 2026-11-09 | |
+| `tests/` | every test name read; suite run | 2026-11-04 | 256 passed; 350 on 2026-11-10 |
 | `docs/` | integrity and concepts read; measurements read by section | 2026-11-04 | |
 | `trades/` | READMEs read | 2026-11-04 | CSVs and workbooks not opened |

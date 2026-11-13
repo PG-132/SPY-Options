@@ -248,6 +248,35 @@ def calendar_sessions_between(start, expiry):
     return n
 
 
+def years_to_expiry(expiry, when):
+    """The pricing clock: years from `when` to the expiry's close, as actual
+    seconds over a 365-day year.
+
+    Actual time, not whole days: these options stop trading at 16:00 ET on
+    the expiry date. Counting Sep-25 as one day from a Wed 11:42 snapshot
+    instead of 1.18 put its IV 1.3 points too high; at 29 days the same
+    rounding is worth 0.04.
+
+    One function because two callers price on it: one_expiry, which solves
+    every IV against it, and scenario.py, which reprices those IVs at other
+    dates and has to stand on the same clock to give the same prices back.
+    A-003's deferred pricing-clock half lands here if it is ever taken up:
+    a 1pm-close expiry still ends at 16:00, which `prices.session_close`
+    would correct. `when` must carry its timezone.
+
+    Both ends are put in UTC before subtracting, so a change between EDT and
+    EST in between is counted. Python subtracts two times that share one
+    tzinfo object by their clock readings alone: a scenario date built with
+    `ET`, as scenario.point builds them, read the Oct-30 close to the Nov-6
+    close as 168 hours, though 169 passed. A snapshot's own start carries a
+    fixed offset, so vol.py's IVs were never affected, and for those the
+    result is unchanged to the bit."""
+
+    close = dt.datetime.combine(expiry, dt.time(16, 0), tzinfo=ET)
+    utc = dt.timezone.utc
+    return (close.astimezone(utc) - when.astimezone(utc)).total_seconds() / (365 * 86400)
+
+
 def half_days_between(start, expiry):
     """How many 1pm closes the range holds. Carried onto every window so a
     reading that looks cheap against its neighbours can be checked for being
@@ -478,13 +507,7 @@ def one_expiry(expiry, rows, spots, started, warnings, band=""):
     if dte <= 0:
         return None, []
     
-    # Actual time, not whole days: these options stop trading at 16:00 ET on
-    # the expiry date. Counting Sep-25 as one day from a Wed 11:42 snapshot
-    # instead of 1.18 put its IV 1.3 points too high; at 29 days the same
-    # rounding is worth 0.04.
-
-    close = dt.datetime.combine(exp, dt.time(16, 0), tzinfo=ET)
-    T = (close - started).total_seconds() / (365 * 86400)
+    T = years_to_expiry(exp, started)
     disc = math.exp(-CONFIG["rate"] * T)
     by_strike = quotes_by_strike(rows)
     fwd = forward(by_strike, disc)

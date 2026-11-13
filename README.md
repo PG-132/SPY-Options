@@ -33,7 +33,45 @@ Everything runs through `app.py`, from this folder:
     python app.py prices   daily closes for SPY and the CBOE series, cached
     python app.py vrp      implied against realized, one claim per month
 
+    python app.py scenario pos.csv [snapshot] [--shift N] [--sessions 1,5]
+    python app.py scenario pos.csv [snapshot] --path path.csv
+                           what a position does if spot, IV or the date
+                           were different, under three IV responses to
+                           the spot move: a what-if, never a forecast
+
 With no command (VS Code's Run button), `app.py` runs `plan`.
+
+`scenario` reads a position file, one leg per row:
+
+    kind,expiry,strike,right,qty,price
+    option,2026-12-04,735,C,1,
+    option,2026-12-04,735,P,1,
+    nes,,,,-1,7420
+
+`kind` is `option`, `shares` or `nes`; `qty` is signed; `price` is the fill
+for hedge legs; on an option it may log your fill, which is recorded but not
+used, since entry is at mid. Option and NES quantities are whole
+contracts; shares may be fractional. Start a row's kind with `#` to leave it
+out; a row with anything in it but no kind is refused, not skipped. It prints P&L across spot (in expected
+moves, with the percent beside them) and dates, and writes
+`data/scenario/<snapshot>/<position>/`. Each strike keeps its IV as spot
+moves; at every point the P&L comes three times, under no IV response, a
+moderate one and a large one (vol points per 1% of SPY move at 30 days:
++1 and +2 on a drop, -1 and -1.5 on a rally, scaled by sqrt(30 / days
+left)), and the report names which case is lowest and highest there.
+`--sessions 1,5` adds the closes 1 and 5 sessions out to the dates. With
+`--path`, a file of `date,spot,iv_shift,kind,qty,price` steps (the last three
+only on a step with a hedge trade), it prints P&L along that path instead.
+A path that passes an expiry needs a step dated on it: that is the price the
+expiring legs settle at, and it refuses to guess one. `--shift` and `--sessions` are for the
+grid; a path's shocks go in its `iv_shift` column and its dates in its own,
+so either with `--path` is refused. A path is priced with no IV response. A number that doesn't parse, in either file, is refused rather than
+read as zero. Every saved row carries `inputs`, a fingerprint of the legs and
+the snapshot data: a grid and a path from the same inputs stay side by side,
+and a run removes one priced from anything else. Each run also gets a `report`
+id of its own. A save is all or nothing: if it fails, say because a result
+is open in a spreadsheet, the last good set stays as it was.
+The rules it prices by are in `screener/scenario.py`.
 
 It needs `WEBULL_APP_KEY` and `WEBULL_APP_SECRET` in the environment, plus
 Webull's OPRA subscription. Take snapshots during market hours: after the close
@@ -57,6 +95,8 @@ at 12:45.
                           settled, and what it delivered
     screener/prices.py    daily closes from Yahoo; the only file that talks to it
     screener/vrp.py       implied against realized, monthly and non-overlapping
+    screener/scenario.py  a position under hypothetical spot, IV, dates and
+                          paths, on the snapshot's own smile and term structure
     tests/                offline tests with a fake Webull:
                           python -m unittest discover tests
     docs/concepts.md      the mechanisms, and what each output column means

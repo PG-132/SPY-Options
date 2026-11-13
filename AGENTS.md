@@ -59,12 +59,13 @@ You maintain these files as part of normal work. No special tool or skill is nee
 
 | Purpose | Command | Source | Last verified |
 | --- | --- | --- | --- |
-| Test (offline, fake Webull) | `python -m unittest discover tests` | README.md | 2026-11-05: 263 tests passed, Python 3.14.3 (owner's machine). 2026-11-04: 256 passed on 3.13.7 (setup machine) |
+| Test (offline, fake Webull) | `python -m unittest discover tests` | README.md | 2026-11-12: 385 tests passed, Python 3.14.3 (owner's machine). 2026-11-11: 366. 2026-11-10: 350 passed. 2026-11-05: 263 passed. 2026-11-04: 256 passed on 3.13.7 (setup machine) |
 | Daily run (snap + pipeline) | `python app.py daily` | app.py | not run (needs Webull SDK, keys, market hours) |
 | Plan a snapshot, read-only | `python app.py plan` | app.py | not run (needs Webull SDK and keys) |
 | One step on the newest snapshot | `python app.py iv\|surface\|term\|context\|history\|ledger` | app.py | not run (needs data/ from a snapshot) |
 | Price history | `python app.py prices [refresh]` | app.py | not run (needs `yfinance`) |
 | Implied vs realized | `python app.py vrp [refresh]` | app.py | not run (needs `yfinance`) |
+| A position under what-ifs | `python app.py scenario <position.csv> [snapshot] [--shift N] [--sessions 1,5]`, or `--path path.csv` | app.py | 2026-11-12: grid with `--sessions 5` on `2026-11-10_1540`, a short Nov-20 750 straddle, reproducing the IV response record's illustration to the dollar (see changes/2026-11-11-iv-response.md). 2026-11-09: grid on `2026-11-04_1545` and `2026-11-05_1633`, `--shift -3` and `--path` on the latter; a strike the chain does not list is refused (see changes/2026-11-06-scenario-engine.md) |
 
 No lint, format, or typecheck configuration exists. There is no dependency manifest; see A-008 in docs/assumptions.md.
 
