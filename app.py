@@ -20,6 +20,12 @@ app.py - the one entry point for the SPY screener.
                          what a position does under hypothetical spot, IV
                          shifts and dates, under three IV responses to the
                          spot move; a what-if, never a forecast
+  python app.py ui [snapshot] [--port 8050] [--no-browser]
+                         the page, in the browser on this machine: for now
+                         the chain's IV surface and variance strip, snapshot
+                         by snapshot
+                         (docs/changes/2026-11-13-ui.md); needs Dash and
+                         Plotly, from requirements.txt
 
 The chooser the README describes is not built yet; see
 docs/changes/2026-11-04-choosing.md. It will call the scenario engine for
@@ -31,7 +37,7 @@ import argparse
 import sys
 
 from screener import (collect, context, history, ledger, prices, scenario, surface,
-                      term, vol, vrp)
+                      term, ui, vol, vrp)
 
 
 def cmd_daily():
@@ -93,6 +99,12 @@ def main():
                     help="extra grid dates, whole sessions after the snapshot, "
                          "comma-separated (e.g. 1,5); refused with --path")
     sc.add_argument("--path", help="path CSV: date,spot,iv_shift,kind,qty,price")
+    pg = sub.add_parser("ui", help="the page in the browser, on this machine only")
+    pg.add_argument("snapshot", nargs="?",
+                    help="folder name under data/surface/ to open on; default the newest")
+    pg.add_argument("--port", type=int, default=8050, help="default 8050")
+    pg.add_argument("--no-browser", action="store_true",
+                    help="serve the page without opening the browser")
 
     # VS Code's Run button starts the file with no arguments. Default to the
     # read-only command; anything that writes has to be asked for.
@@ -125,6 +137,8 @@ def main():
         vrp.cmd_vrp(a.refresh)
     elif a.cmd == "scenario":
         scenario.cmd_scenario(a.position, a.snapshot, a.path, a.shift, a.sessions)
+    elif a.cmd == "ui":
+        ui.cmd_ui(a.snapshot, a.port, not a.no_browser)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ What each part of the screener does, one behavior per ID. Specs describe current
 | APP | [app.md](app.md) | The command line and the daily pipeline |
 | CHOOSE | [choose.md](choose.md) | The structure chooser from the README. Not built |
 | SCEN | [scenario.md](scenario.md) | Value, Greeks and P&L of a position under hypothetical spot, IV, dates and paths. Built 2026-11-09 |
+| UI | [ui.md](ui.md) | The page in the browser: the chain's IV surface so far, with the variance strip and the position's what-ifs to come. Being built from 2026-11-19 |
 
 ## Status legend
 

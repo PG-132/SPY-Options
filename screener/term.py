@@ -204,9 +204,28 @@ def load(snapshot):
             "total_var": level * level * T,
             # w = level^2 * T, so dw = 2 * level * T * d(level)
             "total_var_error": 2.0 * level * T * level_error,
+            # The same total from the at-the-money level, beside the one the
+            # windows are stripped from: the gap between them is the
+            # variance the wings add. Carried for the UI's integral
+            # (docs/changes/2026-11-13-ui.md, AC-28), never stripped: a window
+            # differencing one ATM total against another would be the
+            # skew-blind number this module chose the variance swap over.
+            "atm_total_var": atm * atm * T,
+            "atm_total_var_error": 2.0 * atm * T * atm_error,
         })
     out.sort(key=lambda r: r["sessions"])
     return out, dropped
+
+
+def _place(row):
+    """Where a row sits among expiry dates, for counting the dropped expiries
+    between two rows: an expiry at its own date (ISO dates sort as text), and
+    the snapshot's own row - context.with_spot's, the one with no time to
+    expiry - before every date. Its name, "spot", compared as text sorts after
+    them all, so until 2026-11-20 the window from the snapshot never counted
+    the expiries dropped before the first kept one: on 2026-11-05_1633 it
+    stood in for five and read as sound (docs/changes/2026-11-13-ui.md, AC-31)."""
+    return str(row.get("expiry", "")) if row.get("T") else ""
 
 
 def forward_windows(rows, dropped=()):
@@ -251,8 +270,7 @@ def forward_windows(rows, dropped=()):
         # of the two totals it differences.
         margins = [x["edge_margin"] for x in (a, b)
                    if x.get("edge_margin") is not None]
-        between = sum(1 for g in gone
-                      if str(a.get("expiry", "")) < g < str(b.get("expiry", "")))
+        between = sum(1 for g in gone if _place(a) < g < _place(b))
         out.append({
             "edge_margin": round(max(margins), 4) if margins else None,
             "spans_dropped": between,
@@ -294,16 +312,29 @@ def constant_maturity(rows, sessions):
             hi = r
     if lo is None or hi is None:
         return None                       # outside the chain; no extrapolating
+    e_lo, e_hi = lo.get("total_var_error"), hi.get("total_var_error")
     if lo["sessions"] == hi["sessions"]:
-        w, between = lo["total_var"], lo["expiry"]
+        w, between, err = lo["total_var"], lo["expiry"], e_lo
     else:
         span = hi["sessions"] - lo["sessions"]
         frac = (sessions - lo["sessions"]) / span
         w = lo["total_var"] + (hi["total_var"] - lo["total_var"]) * frac
         between = f"{lo['expiry']} to {hi['expiry']}"
+        # The two ends' errors on the same straight line: the most they can
+        # make the total, whatever their correlation (in quadrature, as if
+        # independent, it reads smaller between them). It is only what the
+        # ends carry in. The line itself - a constant forward variance across
+        # the gap - is term's reading, not a measurement, and how variance is
+        # spread inside the gap is not in it at all; inside a window standing
+        # in for dropped expiries that is exactly what is unknown. Not saved:
+        # constant.csv's columns are unchanged (docs/changes/2026-11-13-ui.md,
+        # AC-33).
+        err = (None if e_lo is None or e_hi is None
+               else e_lo * (1.0 - frac) + e_hi * frac)
     years = sessions / CONFIG["sessions_per_year"]
     return {"sessions": sessions, "vol": math.sqrt(w / years),
-            "interpolated_between": between, "total_var": w}
+            "interpolated_between": between, "total_var": w,
+            "total_var_error": err}
 
 
 def analyse(snapshot):

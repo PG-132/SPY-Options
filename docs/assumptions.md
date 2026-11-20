@@ -52,14 +52,6 @@ Opened 2026-11-04, during knowledge-base setup. IDs are never reused.
 
 **Question:** keep horizons at (5, 10, 15) and correct the comments, or add a 20-session horizon now that the chain reaches it?
 
-### A-008 · Architecture · Low · No dependency file
-
-**Assumed:** dependencies are installed by hand and that's fine for now.
-
-**Why:** the code needs the Webull OpenAPI SDK (imported as `webull.core` and `webull.data`) and `yfinance`, and nothing in the repo says which packages or versions. Neither was installed on the setup machine.
-
-**Question:** want a `requirements.txt`? If so, which pip package name and version of the Webull SDK do you use?
-
 ### A-009 · LEDG-014, PRICE-010 · Low · How "converged" is decided
 
 **Assumed:** checking only the below-spot number (`int(band.split("/")[0]) >= 12`) is enough, because only 6/3 and 12/6 have ever been used.

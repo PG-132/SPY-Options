@@ -1380,6 +1380,16 @@ class TestCommand(AppBase):
         self.snapshot(started=EST)
         self.assertEqual(scenario.latest(), "2026-11-05_1545")
 
+    def test_ready_lists_every_snapshot_carried_through_the_fit_oldest_first(self):
+        """The UI steps through these. A snapshot the fit has not reached (no
+        fits.csv yet) is not one of them, and latest() is the last."""
+        self.snapshot(started=EDT)
+        self.snapshot(started=EST)
+        self.snapshot(started=PRE_HALF)
+        (self.root / "surface" / "2026-11-20_1545" / "fits.csv").unlink()
+        self.assertEqual(scenario.ready(), ["2026-10-29_1545", "2026-11-05_1545"])
+        self.assertEqual(scenario.latest(), scenario.ready()[-1])
+
     def test_a_spot_or_shift_that_is_not_finite_is_refused_at_every_door(self):
         """The files are checked as read, but point() is also how the chooser
         and the UI will call in: there NaN priced to NaN and an infinite spot

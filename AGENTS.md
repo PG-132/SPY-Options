@@ -12,6 +12,15 @@ A personal SPY options volatility screener and paper-trading notebook. It snapsh
 
 Search `docs/` for the task's key terms before answering or editing, so related decisions and constraints aren't missed. Don't read every file by default. `docs/measurements.md` is long (1,300+ lines): search it by heading or keyword instead of reading it whole.
 
+### Shared reviews and handoffs
+
+Claude and Codex work in the same folder; `CLAUDE.md` imports this file. Use the shared documents to pass findings between agents, without asking the owner to copy a review between chats.
+
+- **Before resuming implementation**, including in an existing session after a pause or an owner reply, re-read `docs/status.md`'s Pending handoffs and the active change record from disk. Earlier chat context may predate another agent's review.
+- **When leaving a review**, put each finding in its owning document, then add a short Pending handoffs entry in `docs/status.md` with the date, intended recipient or task, and links to the findings. Keep the details in one place.
+- **When receiving a review**, read the linked findings and check them against the code and the owner's decisions. Record their disposition in the active change record: incorporated, deferred with a reason, or disagreed with and why. Preserve the distinction between the owner's approvals and an agent's proposals; a review does not authorize unrelated implementation.
+- **Acknowledge receipt in the shared files.** Once the review has been assessed and its dispositions recorded, remove its pending entry and add a dated History line linking to that assessment. Unfinished fixes remain in their owning spec or change checklist. Do not ask the owner to relay material already present in these files, and do not claim another agent has read a handoff until it acknowledges it.
+
 ### Where things live
 
 | Question | File |
@@ -59,7 +68,10 @@ You maintain these files as part of normal work. No special tool or skill is nee
 
 | Purpose | Command | Source | Last verified |
 | --- | --- | --- | --- |
-| Test (offline, fake Webull) | `python -m unittest discover tests` | README.md | 2026-11-12: 385 tests passed, Python 3.14.3 (owner's machine). 2026-11-11: 366. 2026-11-10: 350 passed. 2026-11-05: 263 passed. 2026-11-04: 256 passed on 3.13.7 (setup machine) |
+| Install dependencies | `python -m pip install -r requirements.txt` | requirements.txt | 2026-11-19: installed on Python 3.14.3 (owner's machine): Dash 4.5.1 and Plotly 7.1.0 with 20 supporting packages added; `typing_extensions` 4.15.0 to 4.16.0, required by pydantic, which Dash uses; nothing else changed; `pip check` clean |
+| The page | `python app.py ui [snapshot] [--port N] [--no-browser]` | app.py | 2026-11-20: chain view step 3 (the highlights) checked in the browser pane at 1600x1000 with real mouse hovers on `2026-11-20_1629`, `2026-11-19_1539` and `2026-11-05_1633`; 5 to 17 ms per highlight; a 3D click cannot be made in the pane (see changes/2026-11-13-ui.md). 2026-11-20 review: opened `2026-11-20_1629` and stepped to `2026-11-19_1539`; found the ATM-fallback label gap (specs/ui.md), no UI changes. Earlier 2026-11-20: chain view step 2 (the variance strip; every view in a movable, resizable window) checked in the browser pane at 1600x1000 on `2026-11-19_1539` and `2026-11-05_1633`. 2026-11-19: chain view step 1 (the IV surface and the snapshot slider) opened on the real snapshots in the app's browser pane, through `.claude/launch.json` (`spy-ui`); stepping, hover, warnings and auto axes checked (see changes/2026-11-13-ui.md) |
+| Test (offline, fake Webull) | `python -m unittest discover tests` | README.md | 2026-11-20: 439 passed, Python 3.14.3, with the highlights (step 3). 2026-11-20: 418 passed, Python 3.14.3, with the strip and the windows. 2026-11-19: 406 passed, Python 3.14.3, with the page's first step. 2026-11-19: 385 tests passed, Python 3.14.3, after installing Dash and Plotly. 2026-11-12: 385 tests passed, Python 3.14.3 (owner's machine). 2026-11-11: 366. 2026-11-10: 350 passed. 2026-11-05: 263 passed. 2026-11-04: 256 passed on 3.13.7 (setup machine) |
+| Focused UI and term tests | `python -m unittest tests.test_ui tests.test_term` | tests/test_ui.py, tests/test_term.py | 2026-11-20: 80 passed, Python 3.14.3, on the owner's machine as written, with step 3. 2026-11-20 review: 60 passed, Python 3.14.3. Run through unittest's loader with the installed runtime directly and `tempfile.tempdir` set to a writable review-artifact directory after the default sandbox Temp denied fixture writes/cleanup; details in changes/2026-11-13-ui.md |
 | Daily run (snap + pipeline) | `python app.py daily` | app.py | not run (needs Webull SDK, keys, market hours) |
 | Plan a snapshot, read-only | `python app.py plan` | app.py | not run (needs Webull SDK and keys) |
 | One step on the newest snapshot | `python app.py iv\|surface\|term\|context\|history\|ledger` | app.py | not run (needs data/ from a snapshot) |
@@ -67,7 +79,7 @@ You maintain these files as part of normal work. No special tool or skill is nee
 | Implied vs realized | `python app.py vrp [refresh]` | app.py | not run (needs `yfinance`) |
 | A position under what-ifs | `python app.py scenario <position.csv> [snapshot] [--shift N] [--sessions 1,5]`, or `--path path.csv` | app.py | 2026-11-12: grid with `--sessions 5` on `2026-11-10_1540`, a short Nov-20 750 straddle, reproducing the IV response record's illustration to the dollar (see changes/2026-11-11-iv-response.md). 2026-11-09: grid on `2026-11-04_1545` and `2026-11-05_1633`, `--shift -3` and `--path` on the latter; a strike the chain does not list is refused (see changes/2026-11-06-scenario-engine.md) |
 
-No lint, format, or typecheck configuration exists. There is no dependency manifest; see A-008 in docs/assumptions.md.
+No lint, format, or typecheck configuration exists. Dependencies are pinned in `requirements.txt` (A-008, closed 2026-11-19).
 
 Update this table whenever a command changes or you run one with a new result.
 

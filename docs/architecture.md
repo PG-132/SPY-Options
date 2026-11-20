@@ -6,10 +6,12 @@
 | --- | --- | --- |
 | Python | 3.13.7 on the machine used for setup, 3.14.3 on the owner's machine; no minimum is declared | `python --version`, 2026-11-04 |
 | Standard library only for analysis | uses `zoneinfo`, so Python 3.9+ | imports in `screener/*.py` |
-| Webull OpenAPI Python SDK | not pinned; imported as `webull.core.client` and `webull.data.data_client` | `screener/collect.py` `make_client()` |
-| `yfinance` | not pinned | `screener/prices.py` |
+| Webull OpenAPI Python SDK | 2.0.19, pip package `webull-openapi-python-sdk`; imported as `webull.core.client` and `webull.data.data_client` | `screener/collect.py` `make_client()`; `requirements.txt` |
+| `yfinance` | 1.2.0 | `screener/prices.py`; `requirements.txt` |
+| Dash | 4.5.1, for the UI only; brings Flask, Werkzeug and pydantic with it | `screener/ui_app.py`; `requirements.txt`; installed 2026-11-19 |
+| Plotly | 7.1.0 (plotly.js 4.1.1 in the browser), for the UI only | `screener/ui_app.py`; `requirements.txt`; installed 2026-11-19 |
 
-There is no `requirements.txt` or `pyproject.toml` (A-008 in [assumptions.md](assumptions.md)). Neither third-party package was installed on the setup machine, so only the offline tests were run.
+`requirements.txt` pins the four packages above (owner, 2026-11-19, closing A-008). Install with `python -m pip install -r requirements.txt`. It pins only those four, so pip resolves the packages they bring in: on the owner's machine on 2026-11-19 that added 20 and moved `typing_extensions` from 4.15.0 to 4.16.0. Neither the Webull SDK nor `yfinance` was installed on the setup machine, so only the offline tests were run there.
 
 ## Module map
 
@@ -27,6 +29,8 @@ There is no `requirements.txt` or `pyproject.toml` (A-008 in [assumptions.md](as
 | `screener/prices.py` | Daily closes for SPY, ^VIX, ^VIX9D, ^VIX3M, ^IRX from Yahoo; the cache and its freshness guard. The only file that talks to Yahoo |
 | `screener/vrp.py` | Implied against realized, one non-overlapping claim per month |
 | `screener/scenario.py` | A position's value, Greeks and P&L under hypothetical spot, IV shifts, dates and paths, on the snapshot's own IVs and term structure, each strike keeping its IV as spot moves, under three IV responses to the move. What-if only; the UI and the chooser call it |
+| `screener/ui.py` | The page's view: everything it shows, as plain data from the engine and the pipeline's files; standard library only. Holds `cmd_ui` |
+| `screener/ui_app.py` | The page's drawing: Dash layout, callbacks and Plotly figures, built only from `ui.py`'s output. The one file that imports Dash or Plotly, imported only by `ui` |
 | `tests/` | Offline unit tests, one file per module, with a fake Webull client |
 | `trades/` | Hand-kept paper-trade logs (CSV plus the source workbook) and notes |
 
@@ -54,6 +58,8 @@ snap ──> iv ──> surface ──> term ──> context ──> ledger ─�
 `response` is history's fixed-strike view alone (`history.cmd_response`), reading every day's last snapshot in `data/iv/` and writing `data/history/response.csv`. The full `history`, `prices` and `vrp` are run on their own. `context`, `ledger` and `vrp` call `prices` for SPY closes and VIX.
 
 **Scenarios** (`python app.py scenario <position.csv>`, on demand, not in `daily`). Reads one snapshot's raw quotes (`data/chains/`), vol.py's IVs and forwards (`data/iv/`), the fit and its range (`data/surface/`, read only for a strike vol.py could not read), and the term structure through `term.load`, starting on vol.py's clock (`vol.years_to_expiry`). Writes `data/scenario/<snap>/<position>/`.
+
+**The page** (`python app.py ui`, on demand). Serves on 127.0.0.1 (port 8050 by default) until Ctrl+C. Reads each snapshot through `scenario.load`, with its `points.csv`, `run.json` and `term.load` (for the drop rule's reasons), between two `scenario.snapshot_hash`es, and keeps what it read by that hash. The strip comes from `term.load`, `term.constant_maturity` and `context.decompose`. Each view is a window moved by `screener/assets/windows.js`, which Dash serves with the page. Writes nothing yet. See [specs/ui.md](specs/ui.md).
 
 **Settlement.** A ledger window spans (start, end] in sessions. Once `end` is in the cached SPY closes, its realized volatility is measured over exactly those closes and set beside the forward vol it was priced at.
 

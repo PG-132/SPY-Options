@@ -33,6 +33,7 @@ Intended where the owner decided the rule, or accepted the change record that pr
 - `python app.py scenario <position.csv> [snapshot] [--shift N] [--sessions N[,N]]`, or `--path path.csv` instead of the last two; default the newest snapshot carried through `surface`. Not part of `daily`.
 - Position CSV: `kind,expiry,strike,right,qty,price`; `kind` is `option`, `shares` or `nes`; `price` is the fill for hedge legs; on an option it is recorded as the fill (in `legs.csv` and the fingerprint) but not used, since entry is at mid. Path CSV: `date,spot,iv_shift,kind,qty,price`, the last three blank on a step with no trade.
 - Writes `data/scenario/<snapshot>/<position>/legs.csv`, and `grid.csv` or `path.csv`, every row stamped with `inputs` (SCEN-014). Columns: `LEG_COLS`, `GRID_COLS`, `PATH_COLS` in `scenario.py`; meanings in [../concepts.md](../concepts.md) "What-if: the scenario engine".
+- `scenario.ready()`: every snapshot carried through the fit, oldest first; `latest()` is its last (added 2026-11-19 for the UI's snapshot slider).
 - For the chooser and the UI: `scenario.load(snapshot)`, `build_legs`, `point(ctx, date, spot, shift, case)`, `price_point`, `grid(ctx, legs, shift, position, sessions)`, `grid_slope`, `extremes`, `response`, `run_path`; `CASES` names the responses. `Refused` carries every reason.
 - Reads `data/chains/`, `data/iv/` and `data/surface/`, directly and through `term.load`, `context.session_remaining` and `ledger.snapshot_spot`. Time to expiry is `vol.years_to_expiry`, shared with `vol.one_expiry`.
 

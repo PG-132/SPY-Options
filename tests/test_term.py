@@ -196,6 +196,24 @@ class TestConstantMaturity(unittest.TestCase):
         got = term.constant_maturity(self.rows, 14)
         self.assertEqual(got["interpolated_between"], "E14")
 
+    def test_on_an_expiry_the_totals_error_is_that_expirys_own(self):
+        rows = [expiry(s, 0.13, days=s / 252 * 365, atm_error=0.002) for s in (2, 7, 14)]
+        self.assertEqual(term.constant_maturity(rows, 7)["total_var_error"],
+                         rows[1]["total_var_error"])
+
+    def test_between_two_expiries_the_totals_error_is_the_straight_line_between_theirs(self):
+        """A quarter of the way from E10 to E20 the total is 3/4 of one plus
+        1/4 of the other, and so is its error: the most the two ends' errors
+        can make it whatever their correlation (AC-33). Added in quadrature,
+        as if independent, it would read smaller at every point between."""
+        lo = expiry(10, 0.10, days=10 / 252 * 365, atm_error=0.003)
+        hi = expiry(20, 0.20, days=20 / 252 * 365, atm_error=0.001)
+        got = term.constant_maturity([lo, hi], 12.5)["total_var_error"]
+        self.assertAlmostEqual(got, 0.75 * lo["total_var_error"] + 0.25 * hi["total_var_error"],
+                               places=15)
+        self.assertGreater(got, math.hypot(0.75 * lo["total_var_error"],
+                                           0.25 * hi["total_var_error"]))
+
 
 class TestResolution(unittest.TestCase):
     """How well the chain underneath a window converged. The drop rule is a
@@ -430,3 +448,26 @@ class TestWhichLevelIsStripped(unittest.TestCase):
                            ("B", 10, 0.11, 0.13, 0.0001)])
         rows, _ = term.load(snap)
         self.assertEqual(term.forward_windows(rows)[0]["source"], "vs")
+
+    def test_each_expiry_carries_its_atm_total_beside_the_one_it_strips(self):
+        """For the UI's integral: atm^2 x T, its error carried as total_var's
+        is, from the fit's standard error and the forward's cost. The
+        stripped total is untouched."""
+        snap = self.build([("A", 5, 0.10, 0.12, 0.0001),
+                           ("B", 10, 0.11, 0.13, 0.0001)])
+        rows, _ = term.load(snap)
+        atm_error = math.hypot(0.02 / 100 / math.sqrt(100), 0.0003)
+        for r, atm, vs in zip(rows, (0.10, 0.11), (0.12, 0.13)):
+            self.assertAlmostEqual(r["atm_total_var"], atm * atm * r["T"], places=15)
+            self.assertAlmostEqual(r["atm_total_var_error"], 2 * atm * r["T"] * atm_error,
+                                   places=15)
+            self.assertAlmostEqual(r["total_var"], vs * vs * r["T"], places=15)
+
+    def test_with_the_atm_level_stripped_the_two_totals_are_one_number(self):
+        snap = self.build([("A", 5, 0.10, 0.12, 0.0001),
+                           ("B", 10, 0.11, None, None),
+                           ("C", 15, 0.12, None, None)])
+        rows, _ = term.load(snap)
+        for r in rows:
+            self.assertEqual(r["atm_total_var"], r["total_var"])
+            self.assertEqual(r["atm_total_var_error"], r["total_var_error"])

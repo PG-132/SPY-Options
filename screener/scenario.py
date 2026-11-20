@@ -1396,16 +1396,23 @@ def report_path(ctx, legs, position, rows, dest):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def ready():
+    """Every snapshot the pipeline has carried through the fit, oldest
+    first: the engine needs the raw chain, vol.py's IVs and surface.py's
+    curves. Snapshot names sort by time, so the last is the newest. The UI
+    lists these to step through; `latest` is the last of them."""
+    return sorted(p.name for p in SURFACE_DIR.glob("*")
+                  if (p / "fits.csv").exists()
+                  and (IV_DIR / p.name / "contracts.csv").exists()
+                  and (CHAIN_DIR / p.name / "options.csv").exists())
+
+
 def latest():
-    """The newest snapshot the pipeline has carried through the fit: the
-    engine needs the raw chain, vol.py's IVs and surface.py's curves."""
-    ready = sorted(p.name for p in SURFACE_DIR.glob("*")
-                   if (p / "fits.csv").exists()
-                   and (IV_DIR / p.name / "contracts.csv").exists()
-                   and (CHAIN_DIR / p.name / "options.csv").exists())
-    if not ready:
+    """The newest snapshot carried through the fit."""
+    found = ready()
+    if not found:
         sys.exit(f"Nothing fitted in {SURFACE_DIR}. Run `python app.py surface` first.")
-    return ready[-1]
+    return found[-1]
 
 
 def run(position, snapshot, path=None, shift=0.0, sessions=()):

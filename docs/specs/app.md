@@ -15,6 +15,8 @@ One entry point for every step, and one command for the daily routine. Code: `ap
 | APP-005 | Snapshot-reading steps take an optional snapshot folder name and default to the newest | Intended | | argparse definitions in `app.py` |
 | APP-006 | `scenario` runs on demand with a position file, and is not part of `daily` | Intended | | [../changes/2026-11-06-scenario-engine.md](../changes/2026-11-06-scenario-engine.md) "Inputs and output", accepted 2026-11-06; `test_writes_legs_and_grid_with_their_columns_through_app_py` |
 
+| APP-007 | `ui` serves the page on this machine only, on demand, and is not part of `daily`; the rest of `app.py` runs without the page's packages | Intended | | [../changes/2026-11-13-ui.md](../changes/2026-11-13-ui.md), accepted 2026-11-19; [ui.md](ui.md) UI-001, UI-002 |
+
 ## Interfaces
 
-Commands: `plan`, `daily`, `snap`, `iv`, `surface`, `term`, `context`, `history`, `ledger`, `prices`, `vrp`, `scenario`. See [../../README.md](../../README.md) "Running it".
+Commands: `plan`, `daily`, `snap`, `iv`, `surface`, `term`, `context`, `history`, `ledger`, `prices`, `vrp`, `scenario`, `ui`. See [../../README.md](../../README.md) "Running it".

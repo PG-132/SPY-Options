@@ -19,6 +19,10 @@ of today's surface rather than against a prediction.
 
 ## Running it
 
+Install the third-party packages once, from this folder:
+
+    python -m pip install -r requirements.txt
+
 Everything runs through `app.py`, from this folder:
 
     python app.py plan     which contracts a snapshot would pull (read-only)
@@ -38,6 +42,11 @@ Everything runs through `app.py`, from this folder:
                            what a position does if spot, IV or the date
                            were different, under three IV responses to
                            the spot move: a what-if, never a forecast
+
+    python app.py ui       the page, in your browser on this machine only:
+                           the chain's 3D IV surface and its variance strip,
+                           snapshot by snapshot, each in a window you can
+                           move and resize (stop it with Ctrl+C)
 
 With no command (VS Code's Run button), `app.py` runs `plan`.
 

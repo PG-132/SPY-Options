@@ -1,6 +1,6 @@
 # IV response band
 
-State: verified (built 2026-11-12; uncommitted until the owner pushes). Accepted by the owner 2026-11-12: "Yes, your picks", closing the last two questions
+State: verified (built 2026-11-12; committed by the owner in `d65ba6f`). Accepted by the owner 2026-11-12: "Yes, your picks", closing the last two questions
 Created: 2026-11-11
 Specs: SCEN-004 (replaced), SCEN-006, SCEN-011, SCEN-013, new SCEN-015 and SCEN-016 ([../specs/scenario.md](../specs/scenario.md)); new LEDG-026 ([../specs/ledger.md](../specs/ledger.md))
 Builds on: [2026-11-06-scenario-engine.md](2026-11-06-scenario-engine.md)
@@ -222,7 +222,7 @@ Start here in a new session: read AGENTS.md and docs/status.md, then this record
 - [x] The history view (AC-11)
 - [x] Manual run on `2026-11-10_1540`; docs; fold the behaviors into the specs as Intended (AC-12)
 
-Stopped: nothing half-done. Everything is uncommitted for the owner to commit at push time.
+Stopped: nothing half-done. Committed by the owner in `d65ba6f`.
 
 ## Verification evidence
 

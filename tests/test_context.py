@@ -78,6 +78,22 @@ class TestTheDecomposition(unittest.TestCase):
         self.assertAlmostEqual(cut[0]["forward_vol"], 0.10)
         self.assertAlmostEqual(cut[0]["total_var_from"], 0.0)
 
+    def test_the_window_from_the_snapshot_counts_expiries_dropped_before_the_first_kept_one(self):
+        """On 2026-11-05_1633 the five expiries 11-06 to 11-12 were dropped
+        and the first kept one was 11-13, so the window from the snapshot
+        stood in for all five - yet read as sound, because the snapshot's row
+        is named "spot" and, compared as text, sorts after every date. Found
+        2026-11-20 (UI record, question 20; AC-31)."""
+        rows = chain([(6, 0.30), (2, 0.25)])
+        rows[0]["expiry"], rows[1]["expiry"] = "2026-11-13", "2026-11-17"
+        dropped = [(f"2026-11-{d:02d}", 30, 0.0009) for d in (6, 9, 10, 11, 12)]
+        dropped.append(("2026-11-16", 30, 0.0009))
+        cut, _ = context.decompose(rows, 0.0, dropped)
+        self.assertEqual(cut[0]["from_expiry"], context.SPOT)
+        self.assertEqual(cut[0]["spans_dropped"], 5)
+        self.assertEqual(cut[1]["spans_dropped"], 1, "the next window counts only its own")
+        self.assertAlmostEqual(cut[0]["forward_vol"], 0.30, msg="the count changes, not the vol")
+
     def test_no_time_carries_no_variance_and_no_doubt_about_it(self):
         """The stub is arithmetic, not an assumption, so it must not widen
         the first window's error bar."""

@@ -1,0 +1,17 @@
+# Third-party packages, each behind one door (AGENTS.md, Conventions).
+# The analysis code itself uses the standard library only.
+# Install with:  python -m pip install -r requirements.txt
+# Known to install on Python 3.14.3 (owner's machine, 2026-11-19).
+
+# Option chain snapshots: screener/collect.py only. Versions as installed on
+# the owner's machine since the project began (A-008, closed 2026-11-19).
+webull-openapi-python-sdk==2.0.19
+
+# Daily closes for SPY and the CBOE series: screener/prices.py only.
+yfinance==1.2.0
+
+# The UI's page and charts: screener/ui_app.py only, imported only by
+# `python app.py ui`, so every other command runs without them
+# (docs/changes/2026-11-13-ui.md).
+dash==4.5.1
+plotly==7.1.0

@@ -1,6 +1,6 @@
 # Scenario engine
 
-State: verified (built 2026-11-09; uncommitted until the owner pushes)
+State: verified (built 2026-11-09; committed by the owner in `d65ba6f`)
 Created: 2026-11-06 · Updated: 2026-11-11
 Specs: SCEN-001 to SCEN-014 ([../specs/scenario.md](../specs/scenario.md))
 
@@ -106,7 +106,7 @@ Start here in a new session: read AGENTS.md and docs/status.md, then this record
 - [x] `cmd_scenario`, CSV output, `app.py`, README, AGENTS.md Commands (AC-12)
 - [x] Manual runs on a calm snapshot and on `2026-11-05_1633`; record evidence here; fold the behaviors into specs/scenario.md as Intended
 
-Stopped: nothing half-done. Everything is uncommitted for the owner to commit at push time. A-016 was answered on 2026-11-13 (the carry rate is held, so weekends cost carry); A-017 (three smaller readings) is deferred by the owner, kept as built.
+Stopped: nothing half-done. Committed by the owner in `d65ba6f`. A-016 was answered on 2026-11-13 (the carry rate is held, so weekends cost carry); A-017 (three smaller readings) is deferred by the owner, kept as built.
 
 ## Verification evidence
 
